@@ -587,6 +587,13 @@
       on:seek={handleProgressClick}
     />
 
+    <!-- Word position while paused (stats are hidden in focus mode) -->
+    {#if isManualPause}
+      <div class="word-counter">
+        Paused at word {currentWordIndex} / {words.length}
+      </div>
+    {/if}
+
     <div class="controls-area">
       <Controls
         {isPlaying}
@@ -1043,5 +1050,14 @@
     text-align: center;
     padding: 1rem;
     font-size: 0.9rem;
+  }
+
+  .word-counter {
+    text-align: center;
+    color: #888;
+    font-size: 0.9rem;
+    font-family: monospace;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 0.25rem;
   }
 </style>
