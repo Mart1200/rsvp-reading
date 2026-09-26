@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   create-release-tag:
@@ -103,6 +104,15 @@ jobs:
         run: |
           git tag -a "v${{ steps.new_version.outputs.version }}" -m "Release v${{ steps.new_version.outputs.version }}"
           git push origin "v${{ steps.new_version.outputs.version }}"
+
+      # Pushes made with GITHUB_TOKEN don't trigger other workflows,
+      # so dispatch the tag-based ones explicitly.
+      - name: Trigger release and Docker workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml --ref "v${{ steps.new_version.outputs.version }}"
+          gh workflow run docker.yml --ref "v${{ steps.new_version.outputs.version }}"
 
       - name: Summary
         run: |
