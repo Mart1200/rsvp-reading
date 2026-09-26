@@ -8,8 +8,11 @@
   export let fadeDuration = 150;
   export let fadeEnabled = true;
   export let multiWordEnabled = false;
+  export let showContext = false;
+  export let contextBefore = [];
+  export let contextAfter = [];
 
-  $: useMultiMode = multiWordEnabled && wordGroup.length > 0;
+  $: useMultiMode = !showContext && multiWordEnabled && wordGroup.length > 0;
 
   // Get the current word (either from single mode or the highlighted word in group)
   $: currentWord = useMultiMode ? (wordGroup[highlightIndex] || '') : word;
@@ -37,6 +40,7 @@
   <div
     class="word-container"
     class:multi-mode={useMultiMode}
+    class:is-paused={showContext}
     style="opacity: {opacity}; transition: opacity {fadeEnabled ? fadeDuration : 0}ms ease-in-out;"
   >
     {#if currentWord}
@@ -48,9 +52,13 @@
         {#if isRtl}
           {wordSuffix}{#if useMultiMode && wordsAfter.length > 0}
             &nbsp;<span class="context-words">{wordsAfter.join(' ')}</span>
+          {/if}{#if showContext && contextAfter.length > 0}
+            &nbsp;<span class="paused-context">{contextAfter.join(' ')}</span>
           {/if}
         {:else}
-          {#if useMultiMode && wordsBefore.length > 0}
+          {#if showContext && contextBefore.length > 0}
+            <span class="paused-context">{contextBefore.join(' ')}</span>&nbsp;
+          {/if}{#if useMultiMode && wordsBefore.length > 0}
             <span class="context-words">{wordsBefore.join(' ')}</span>&nbsp;
           {/if}{wordPrefix}
         {/if}
@@ -59,12 +67,16 @@
       <!-- Content after ORP: suffix of current word + words after -->
       <span class="after-orp" style="direction: {isRtl ? 'rtl' : 'ltr'}">
         {#if isRtl}
-          {#if useMultiMode && wordsBefore.length > 0}
+          {#if showContext && contextBefore.length > 0}
+            <span class="paused-context">{contextBefore.join(' ')}</span>&nbsp;
+          {/if}{#if useMultiMode && wordsBefore.length > 0}
             <span class="context-words">{wordsBefore.join(' ')}</span>&nbsp;
           {/if}{wordPrefix}
         {:else}
           {wordSuffix}{#if useMultiMode && wordsAfter.length > 0}
             &nbsp;<span class="context-words">{wordsAfter.join(' ')}</span>
+          {/if}{#if showContext && contextAfter.length > 0}
+            &nbsp;<span class="paused-context">{contextAfter.join(' ')}</span>
           {/if}
         {/if}
       </span>
@@ -132,6 +144,29 @@
     justify-content: center;
   }
 
+  /* Paused context wraps over several lines */
+  .word-container.is-paused {
+    white-space: normal;
+    line-height: 1.2;
+    height: auto;
+    min-height: 1.2em;
+    padding: 2rem 0;
+  }
+
+  .word-container.is-paused .before-orp,
+  .word-container.is-paused .after-orp {
+    display: flex;
+    align-items: center;
+  }
+
+  .word-container.is-paused .before-orp {
+    justify-content: flex-end;
+  }
+
+  .word-container.is-paused .after-orp {
+    justify-content: flex-start;
+  }
+
   .word-container.multi-mode {
     font-size: clamp(1.2rem, 4vw, 3rem);
   }
@@ -139,6 +174,18 @@
   .context-words {
     color: #666;
     font-weight: 400;
+  }
+
+  .paused-context {
+    color: #888;
+    font-size: 0.4em; /* Slightly smaller for multi-line */
+    font-weight: 300;
+    opacity: 0.6;
+    max-width: 40vw;
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 1.4;
+    white-space: normal;
   }
 
   .orp {
