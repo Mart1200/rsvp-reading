@@ -154,6 +154,41 @@ export function shouldPauseAtWord(wordIndex, pauseAfterWords) {
 }
 
 /**
+ * Search the word list for a word or phrase (case-insensitive).
+ * Each result points at the word where the match starts, so every
+ * occurrence is reported exactly once.
+ *
+ * @param {string[]} words - Complete word array
+ * @param {string} query - Word or phrase to search for (min. 2 characters)
+ * @param {number} maxResults - Maximum number of results
+ * @returns {{ index: number, context: string, percentage: number }[]}
+ */
+export function searchWords(words, query, maxResults = 20) {
+  const needle = (query || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (needle.length < 2 || !words || words.length === 0) return [];
+
+  // A match starting in word i spans at most this many words
+  const span = needle.split(" ").length + 1;
+  const results = [];
+
+  for (let i = 0; i < words.length && results.length < maxResults; i++) {
+    const window = words.slice(i, i + span).join(" ").toLowerCase();
+    const pos = window.indexOf(needle);
+    if (pos === -1 || pos >= words[i].length) continue;
+
+    const start = Math.max(0, i - 5);
+    const end = Math.min(words.length, i + 15);
+    results.push({
+      index: i,
+      context: words.slice(start, end).join(" "),
+      percentage: Math.round((i / words.length) * 100),
+    });
+  }
+
+  return results;
+}
+
+/**
  * Extract a subset of words centered on current position
  * @param {string[]} allWords - Complete word array
  * @param {number} centerIdx - Index to center on

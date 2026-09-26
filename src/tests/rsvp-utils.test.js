@@ -7,7 +7,8 @@ import {
   formatTimeRemaining,
   splitWordForDisplay,
   shouldPauseAtWord,
-  extractWordFrame
+  extractWordFrame,
+  searchWords
 } from '../lib/rsvp-utils.js'
 
 describe('parseText', () => {
@@ -391,5 +392,41 @@ describe('extractWordFrame', () => {
     const result = extractWordFrame(words, 9, 5)
     expect(result.subset).toEqual(['eight', 'nine', 'ten'])
     expect(result.centerOffset).toBe(2)
+  })
+})
+
+describe('searchWords', () => {
+  const words = 'The quick brown fox jumps over the lazy dog. The fox sleeps.'.split(' ')
+
+  it('should return empty array for short or empty queries', () => {
+    expect(searchWords(words, '')).toEqual([])
+    expect(searchWords(words, 'a')).toEqual([])
+    expect(searchWords([], 'fox')).toEqual([])
+  })
+
+  it('should find every occurrence exactly once, case-insensitive', () => {
+    const result = searchWords(words, 'FOX')
+    expect(result.map(r => r.index)).toEqual([3, 10])
+  })
+
+  it('should point at the word where a phrase starts', () => {
+    const result = searchWords(words, 'lazy dog')
+    expect(result.map(r => r.index)).toEqual([7])
+  })
+
+  it('should match partial words', () => {
+    const result = searchWords(words, 'jump')
+    expect(result.map(r => r.index)).toEqual([4])
+  })
+
+  it('should include context and percentage', () => {
+    const [result] = searchWords(words, 'lazy')
+    expect(result.context).toContain('lazy dog.')
+    expect(result.percentage).toBe(Math.round((7 / words.length) * 100))
+  })
+
+  it('should respect maxResults', () => {
+    const many = Array(50).fill('fox')
+    expect(searchWords(many, 'fox', 5)).toHaveLength(5)
   })
 })
