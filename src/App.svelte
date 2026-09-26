@@ -7,7 +7,8 @@
     shouldPauseAtWord,
     searchWords
   } from './lib/rsvp-utils.js';
-  import { parseFile } from './lib/file-parsers.js';
+  import { parseDocument } from './lib/file-parsers.js';
+  import { detectChapters, findChapterIndex } from './lib/chapters.js';
   import {
     saveSession,
     loadSession,
@@ -41,6 +42,7 @@
   let showSavedSessionPrompt = false;
   let searchResults = [];
   let isSearchMode = false;
+  let chapters = [];
 
   // Settings
   let wordsPerMinute = 300;
@@ -66,9 +68,13 @@
   $: contextAfter = isPaused ? words.slice(activeIndex + 1, Math.min(words.length, activeIndex + 61)) : [];
   $: timeRemaining = formatTimeRemaining(words.length - currentWordIndex, wordsPerMinute);
   $: isFocusMode = isPlaying || isPaused;
+  $: currentChapterIndex = findChapterIndex(chapters, currentWordIndex);
 
-  function parseText() {
+  // fileChapters: chapters from a PDF outline / EPUB TOC; otherwise
+  // headings are detected in the (pasted) text
+  function parseText(fileChapters = null) {
     words = parseTextUtil(text);
+    chapters = fileChapters ?? detectChapters(text);
     currentWordIndex = 0;
     progress = 0;
   }
@@ -176,9 +182,10 @@
     loadingMessage = `Loading ${file.name}...`;
 
     try {
-      text = await parseFile(file);
+      const doc = await parseDocument(file);
+      text = doc.text;
       stop();
-      parseText();
+      parseText(doc.chapters);
       showTextInput = false;
       loadingMessage = '';
     } catch (error) {
@@ -196,6 +203,7 @@
       text,
       currentWordIndex,
       totalWords: words.length,
+      chapters,
       settings: {
         wordsPerMinute,
         fadeEnabled,
@@ -216,7 +224,8 @@
     if (!session) return false;
 
     text = session.text;
-    parseText();
+    // Older sessions have no chapters stored: fall back to detection
+    parseText(session.chapters ?? null);
     currentWordIndex = session.currentWordIndex;
     progress = (currentWordIndex / words.length) * 100;
 
@@ -269,6 +278,13 @@
 
     showJumpTo = false;
     jumpToValue = '';
+  }
+
+  function jumpToChapter(index) {
+    const chapter = chapters[index];
+    if (!chapter || words.length === 0) return;
+    currentWordIndex = Math.min(words.length, chapter.wordIndex);
+    progress = (currentWordIndex / words.length) * 100;
   }
 
   function searchText(query) {
@@ -376,6 +392,22 @@
     <header>
       <h1>RSVP Reader</h1>
       <div class="header-actions">
+        {#if chapters.length > 1}
+          <select
+            class="chapter-select"
+            value={currentChapterIndex}
+            on:change={(e) => jumpToChapter(Number(e.currentTarget.value))}
+            title="Jump to chapter"
+            aria-label="Jump to chapter"
+          >
+            {#if currentChapterIndex === -1}
+              <option value={-1} disabled>Chapters</option>
+            {/if}
+            {#each chapters as chapter, index}
+              <option value={index}>{'  '.repeat(chapter.level)}{chapter.title}</option>
+            {/each}
+          </select>
+        {/if}
         <button
           class="icon-btn"
           on:click={() => { showJumpTo = !showJumpTo; showSettings = false; showTextInput = false; }}
@@ -590,7 +622,7 @@
     <!-- Word position while paused (stats are hidden in focus mode) -->
     {#if isManualPause}
       <div class="word-counter">
-        Paused at word {currentWordIndex} / {words.length}
+        Paused at word {currentWordIndex} / {words.length}{#if currentChapterIndex >= 0}&nbsp;· {chapters[currentChapterIndex].title}{/if}
       </div>
     {/if}
 
@@ -683,6 +715,30 @@
   .header-actions {
     display: flex;
     gap: 0.5rem;
+  }
+
+  .chapter-select {
+    background: transparent;
+    border: 1px solid #333;
+    color: #888;
+    padding: 0 0.6rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    max-width: 220px;
+    text-overflow: ellipsis;
+  }
+
+  .chapter-select:hover,
+  .chapter-select:focus {
+    border-color: #555;
+    color: #fff;
+    outline: none;
+  }
+
+  .chapter-select option {
+    background: #111;
+    color: #fff;
   }
 
   .icon-btn {
@@ -834,6 +890,10 @@
 
     .panel-overlay {
       padding: 1rem;
+    }
+
+    .chapter-select {
+      max-width: 40vw;
     }
 
     .desktop-only {
@@ -1059,5 +1119,8 @@
     font-family: monospace;
     font-variant-numeric: tabular-nums;
     margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

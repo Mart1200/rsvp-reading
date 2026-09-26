@@ -11,6 +11,7 @@ const STORAGE_KEY = 'rsvp-reading-session';
  * @param {number} session.currentWordIndex - Current position in the text
  * @param {number} session.totalWords - Total word count
  * @param {Object} session.settings - Reader settings
+ * @param {Array} [session.chapters] - Chapters from the file's TOC/outline
  * @returns {boolean} Whether the save was successful
  */
 export function saveSession(session) {
@@ -20,6 +21,7 @@ export function saveSession(session) {
       currentWordIndex: session.currentWordIndex,
       totalWords: session.totalWords,
       settings: session.settings,
+      chapters: session.chapters || [],
       savedAt: Date.now()
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));

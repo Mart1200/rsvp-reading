@@ -22,7 +22,7 @@ vi.mock('epubjs', () => ({
 }))
 
 // Import after mocks are set up
-import { parseFile, getSupportedExtensions } from '../lib/file-parsers.js'
+import { parseFile, parseDocument, getSupportedExtensions } from '../lib/file-parsers.js'
 
 describe('getSupportedExtensions', () => {
   it('should return supported file extensions', () => {
@@ -320,5 +320,104 @@ describe('text cleaning', () => {
     const result = await parseFile(file)
 
     expect(result).toBe('What? Really!')
+  })
+})
+
+describe('parseDocument chapters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should map the PDF outline to the first word of each page', async () => {
+    const pdfjsLib = await import('pdfjs-dist')
+
+    const pages = [
+      ['Cover', 'page'],
+      ['Chapter', 'one', 'starts', 'here'],
+      ['Chapter', 'two']
+    ].map(items => ({
+      getTextContent: vi.fn().mockResolvedValue({ items: items.map(str => ({ str })) })
+    }))
+
+    const mockPdf = {
+      numPages: 3,
+      getPage: vi.fn(i => Promise.resolve(pages[i - 1])),
+      getOutline: vi.fn().mockResolvedValue([
+        { title: 'One', dest: 'dest-one', items: [] },
+        { title: 'Two', dest: [{ num: 7 }], items: [] }
+      ]),
+      getDestination: vi.fn().mockResolvedValue([{ num: 5 }]),
+      getPageIndex: vi.fn(ref => Promise.resolve(ref.num === 5 ? 1 : 2))
+    }
+
+    pdfjsLib.getDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) })
+
+    const result = await parseDocument(createMockFile('pdf', 'book.pdf', 'application/pdf'))
+
+    expect(result.text).toBe('Cover page Chapter one starts here Chapter two')
+    expect(result.chapters).toEqual([
+      { title: 'One', wordIndex: 2, level: 0 },
+      { title: 'Two', wordIndex: 6, level: 0 }
+    ])
+  })
+
+  it('should return no chapters for a PDF without outline', async () => {
+    const pdfjsLib = await import('pdfjs-dist')
+
+    const mockPdf = {
+      numPages: 1,
+      getPage: vi.fn().mockResolvedValue({
+        getTextContent: vi.fn().mockResolvedValue({ items: [{ str: 'Text' }] })
+      }),
+      getOutline: vi.fn().mockResolvedValue(null)
+    }
+
+    pdfjsLib.getDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) })
+
+    const result = await parseDocument(createMockFile('pdf', 'plain.pdf', 'application/pdf'))
+
+    expect(result.chapters).toEqual([])
+  })
+
+  it('should map the EPUB table of contents incl. anchors', async () => {
+    const epubjs = await import('epubjs')
+
+    const sectionHtml = {
+      'OEBPS/intro.xhtml': '<html><body><p>Short intro text</p></body></html>',
+      'OEBPS/ch1.xhtml': '<html><body><h1>First</h1><p>Some words here</p><h2 id="s2">Second part</h2><p>More</p></body></html>'
+    }
+    const spineItems = Object.keys(sectionHtml).map(href => ({ href }))
+
+    const mockBook = {
+      ready: Promise.resolve(),
+      loaded: { spine: Promise.resolve(), navigation: Promise.resolve() },
+      spine: { spineItems },
+      navigation: {
+        toc: [
+          { label: 'Intro', href: 'intro.xhtml', subitems: [] },
+          {
+            label: 'Chapter 1',
+            href: 'ch1.xhtml',
+            subitems: [{ label: 'Part 2', href: 'ch1.xhtml#s2', subitems: [] }]
+          },
+          { label: 'Missing', href: 'nope.xhtml', subitems: [] }
+        ]
+      },
+      load: vi.fn(href => Promise.resolve(sectionHtml[href]))
+    }
+
+    epubjs.default.mockReturnValue(mockBook)
+
+    const result = await parseDocument(createMockFile('epub', 'book.epub', 'application/epub+zip'))
+    const words = result.text.split(' ')
+
+    expect(result.chapters.map(c => [c.title, c.level])).toEqual([
+      ['Intro', 0],
+      ['Chapter 1', 0],
+      ['Part 2', 1]
+    ])
+    expect(words[result.chapters[0].wordIndex]).toBe('Short')
+    expect(words[result.chapters[1].wordIndex]).toBe('First')
+    expect(words[result.chapters[2].wordIndex]).toBe('Second')
   })
 })
