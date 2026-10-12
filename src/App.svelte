@@ -24,6 +24,7 @@
   import AccountMenu from './lib/components/AccountMenu.svelte';
   import LibraryPanel from './lib/components/LibraryPanel.svelte';
   import SaveToLibraryModal from './lib/components/SaveToLibraryModal.svelte';
+  import Modal from './lib/components/Modal.svelte';
   import { auth, initAuth } from './lib/auth.js';
   import { saveProgress, defaultTitle } from './lib/library.js';
   import { extractWordFrame } from './lib/rsvp-utils.js';
@@ -59,6 +60,12 @@
   let showLibrary = false;
   let showSaveToLibrary = false;
 
+  // Word index of the stored progress for the loaded text (library or browser session),
+  // null when nothing is saved. Stop returns here, and Restart asks before leaving it.
+  /** @type {number|null} */
+  let savedPosition = null;
+  let showRestartConfirm = false;
+
   // Settings
   let wordsPerMinute = 300;
   let fadeEnabled = true;
@@ -92,6 +99,8 @@
     chapters = fileChapters ?? detectChapters(text);
     currentWordIndex = 0;
     progress = 0;
+    // A new text has no saved progress until it is loaded from or saved to storage
+    savedPosition = null;
   }
 
   function getWordDelay(word) {
@@ -182,6 +191,27 @@
     start();
   }
 
+  // Stop button: end playback and go back to the saved position (start of text if none),
+  // so stopping by accident never loses progress
+  function stopToSavedPosition() {
+    stop();
+    if (savedPosition !== null) {
+      currentWordIndex = Math.min(savedPosition, words.length);
+      progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    }
+  }
+
+  // Restart button: confirm first when it would leave saved progress behind
+  function requestRestart() {
+    if (savedPosition > 0) showRestartConfirm = true;
+    else restart();
+  }
+
+  function confirmRestart() {
+    showRestartConfirm = false;
+    restart();
+  }
+
   function handleTextApply(event) {
     text = event.detail.text;
     libraryText = null;
@@ -219,13 +249,16 @@
   function saveCurrentSession() {
     if (words.length === 0) return false;
     // Library texts keep their position on the server, everything else in the browser
+    const position = currentWordIndex;
     if (libraryText) {
-      saveProgress(libraryText.id, currentWordIndex).catch((error) => {
-        console.error('Failed to save progress:', error);
-      });
+      saveProgress(libraryText.id, position)
+        .then(() => { savedPosition = position; })
+        .catch((error) => {
+          console.error('Failed to save progress:', error);
+        });
       return true;
     }
-    return saveSession({
+    const saved = saveSession({
       text,
       currentWordIndex,
       totalWords: words.length,
@@ -243,6 +276,8 @@
         showContextEnabled
       }
     });
+    if (saved) savedPosition = position;
+    return saved;
   }
 
   function loadSavedSession() {
@@ -255,6 +290,7 @@
     // Older sessions have no chapters stored: fall back to detection
     parseText(session.chapters ?? null);
     currentWordIndex = session.currentWordIndex;
+    savedPosition = session.currentWordIndex;
     progress = (currentWordIndex / words.length) * 100;
 
     if (session.settings) {
@@ -283,6 +319,7 @@
     currentWordIndex = Math.min(saved.currentWordIndex, words.length);
     progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
     libraryText = { id: saved.id, title: saved.title };
+    savedPosition = currentWordIndex;
     textSource = {};
     isManualPause = false;
     showSavedSessionPrompt = false;
@@ -303,6 +340,7 @@
 
   function handleTextSaved(event) {
     libraryText = { id: event.detail.id, title: event.detail.title };
+    savedPosition = event.detail.currentWordIndex;
     showSaveToLibrary = false;
   }
 
@@ -312,12 +350,16 @@
 
   function handleLibraryReset(event) {
     if (libraryText?.id !== event.detail) return;
+    savedPosition = 0;
     stop();
   }
 
   function handleLibraryDeleted(event) {
     // The text stays in the reader, it just isn't linked to the library anymore
-    if (libraryText?.id === event.detail) libraryText = null;
+    if (libraryText?.id === event.detail) {
+      libraryText = null;
+      savedPosition = null;
+    }
   }
 
   function clearSavedSession() {
@@ -717,6 +759,19 @@
     />
   {/if}
 
+  {#if showRestartConfirm}
+    <Modal title="Start from the beginning?" on:close={() => (showRestartConfirm = false)}>
+      <p class="notice">
+        Your saved position (word {savedPosition.toLocaleString('en')} of {words.length.toLocaleString('en')})
+        will be replaced the next time your progress is saved.
+      </p>
+      <div class="actions">
+        <button type="button" class="secondary" on:click={() => (showRestartConfirm = false)}>Cancel</button>
+        <button type="button" class="primary" on:click={confirmRestart}>Start over</button>
+      </div>
+    </Modal>
+  {/if}
+
   {#if showSavedSessionPrompt && savedSessionInfo}
     <div class="panel-overlay">
       <div class="saved-session-panel">
@@ -776,8 +831,8 @@
         on:play={start}
         on:pause={pause}
         on:resume={resume}
-        on:stop={stop}
-        on:restart={restart}
+        on:stop={stopToSavedPosition}
+        on:restart={requestRestart}
       />
     </div>
 

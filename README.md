@@ -162,8 +162,8 @@ npm run preview
 - **Pause**: Pause reading (UI enters focus mode with minimal controls)
 - **Exit** (top right, only in focus mode): Leave focus mode and keep the position, same as `Esc`
 - **Resume**: Continue from where you paused
-- **Stop**: Stop and reset to beginning
-- **Restart**: Stop and immediately start from beginning
+- **Stop**: Stop and go back to your last saved position (library or browser), or to the beginning if nothing is saved
+- **Restart**: Start from the beginning. If progress is saved, you are asked first; the saved position is only replaced the next time you save
 
 **Keyboard Shortcuts:**
 | Key | Action |
