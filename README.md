@@ -160,6 +160,7 @@ npm run preview
 **Buttons:**
 - **Play**: Start reading from the beginning or current position
 - **Pause**: Pause reading (UI enters focus mode with minimal controls)
+- **Exit** (top right, only in focus mode): Leave focus mode and keep the position, same as `Esc`
 - **Resume**: Continue from where you paused
 - **Stop**: Stop and reset to beginning
 - **Restart**: Stop and immediately start from beginning

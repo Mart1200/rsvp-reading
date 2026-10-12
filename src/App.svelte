@@ -371,6 +371,16 @@
     progress = (currentWordIndex / words.length) * 100;
   }
 
+  // Leave reading mode but keep the position (Esc or the exit button)
+  function exitFocusMode() {
+    isPlaying = false;
+    isPaused = false;
+    if (intervalId) {
+      clearTimeout(intervalId);
+      intervalId = null;
+    }
+  }
+
   function handleKeydown(e) {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
 
@@ -393,13 +403,7 @@
         } else if (showSavedSessionPrompt) {
           showSavedSessionPrompt = false;
         } else if (isPlaying || isPaused) {
-          // Exit focus mode but preserve position
-          isPlaying = false;
-          isPaused = false;
-          if (intervalId) {
-            clearTimeout(intervalId);
-            intervalId = null;
-          }
+          exitFocusMode();
         }
         break;
       case 'KeyG':
@@ -461,6 +465,15 @@
 </script>
 
 <main class:focus-mode={isFocusMode}>
+  {#if isFocusMode}
+    <button class="exit-focus" on:click={exitFocusMode} title="Exit reading mode (Esc)" aria-label="Exit reading mode">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+      </svg>
+      <span class="exit-label">Exit</span>
+    </button>
+  {/if}
+
   <!-- Header - hidden during focus mode -->
   {#if !isFocusMode}
     <header>
@@ -825,6 +838,36 @@
     padding: 1rem;
   }
 
+  /* Way out of reading mode besides Esc; subtle so it doesn't distract while reading */
+  .exit-focus {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: transparent;
+    border: 1px solid #222;
+    border-radius: 8px;
+    color: #444;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .exit-focus:hover,
+  .exit-focus:focus-visible {
+    border-color: #555;
+    color: #fff;
+  }
+
+  .exit-focus svg {
+    width: 16px;
+    height: 16px;
+  }
+
   header {
     display: flex;
     justify-content: space-between;
@@ -1030,6 +1073,11 @@
 
     main.focus-mode {
       padding: 0.5rem;
+    }
+
+    .exit-focus {
+      top: 0.5rem;
+      right: 0.5rem;
     }
 
     .panel-overlay {
