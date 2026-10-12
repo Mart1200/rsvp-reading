@@ -421,3 +421,39 @@ describe('parseDocument chapters', () => {
     expect(words[result.chapters[2].wordIndex]).toBe('Second')
   })
 })
+
+describe('parseDocument title', () => {
+  function mockEpub(epubjs, metadata) {
+    const section = { href: 'ch1.xhtml' }
+    epubjs.default.mockReturnValue({
+      ready: Promise.resolve(),
+      loaded: { spine: Promise.resolve(), metadata },
+      spine: { items: [section], spineItems: [section] },
+      load: vi.fn().mockResolvedValue('<html><body>Some text</body></html>')
+    })
+  }
+
+  it('returns the EPUB book title from the metadata', async () => {
+    const epubjs = await import('epubjs')
+    mockEpub(epubjs, Promise.resolve({ title: '  Moby-Dick; or, The Whale ' }))
+
+    const result = await parseDocument(createMockFile('epub', 'moby.epub', 'application/epub+zip'))
+
+    expect(result.title).toBe('Moby-Dick; or, The Whale')
+  })
+
+  // Factories: a rejected promise created at collection time would be unhandled
+  it.each([
+    ['missing metadata', () => undefined],
+    ['empty title', () => Promise.resolve({ title: '   ' })],
+    ['failing metadata', () => Promise.reject(new Error('broken'))]
+  ])('omits the title with %s', async (_, metadata) => {
+    const epubjs = await import('epubjs')
+    mockEpub(epubjs, metadata())
+
+    const result = await parseDocument(createMockFile('epub', 'book.epub', 'application/epub+zip'))
+
+    expect(result.title).toBeUndefined()
+    expect(result.text).toBe('Some text')
+  })
+})

@@ -41,7 +41,19 @@ describe('AccountMenu', () => {
 
     expect(button).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getAllByRole('menuitem').map((el) => el.textContent.trim()))
-      .toEqual(['Change password', 'Log out', 'Delete account']);
+      .toEqual(['Library', 'Change password', 'Log out', 'Delete account']);
+  });
+
+  it('asks the app to open the library', async () => {
+    auth.set({ status: 'user', user: alice });
+    const onLibrary = vi.fn();
+    render(AccountMenu, { events: { library: onLibrary } });
+
+    await fireEvent.click(screen.getByRole('button', { name: /alice/ }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Library' }));
+
+    expect(onLibrary).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   it('closes the menu on outside click', async () => {

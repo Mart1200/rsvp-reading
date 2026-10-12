@@ -22,12 +22,16 @@
   import TextInput from './lib/components/TextInput.svelte';
   import ProgressBar from './lib/components/ProgressBar.svelte';
   import AccountMenu from './lib/components/AccountMenu.svelte';
-  import { initAuth } from './lib/auth.js';
+  import LibraryPanel from './lib/components/LibraryPanel.svelte';
+  import SaveToLibraryModal from './lib/components/SaveToLibraryModal.svelte';
+  import { auth, initAuth } from './lib/auth.js';
+  import { saveProgress, defaultTitle } from './lib/library.js';
   import { extractWordFrame } from './lib/rsvp-utils.js';
 
   // State
   let frameWordCount = 1;
-  let text = `Rapid serial visual presentation (RSVP) is a scientific method for studying the timing of vision. In RSVP, a sequence of stimuli is shown to an observer at one location in their visual field. This technique has been adapted for speed reading applications, where words are displayed one at a time at a fixed point, eliminating the need for eye movements and potentially increasing reading speed significantly.`;
+  const DEFAULT_TEXT = `Rapid serial visual presentation (RSVP) is a scientific method for studying the timing of vision. In RSVP, a sequence of stimuli is shown to an observer at one location in their visual field. This technique has been adapted for speed reading applications, where words are displayed one at a time at a fixed point, eliminating the need for eye movements and potentially increasing reading speed significantly.`;
+  let text = DEFAULT_TEXT;
   let words = [];
   let currentWordIndex = 0;
   let isPlaying = false;
@@ -45,6 +49,15 @@
   let searchResults = [];
   let isSearchMode = false;
   let chapters = [];
+
+  // Library: the open text when it comes from the user's library (null otherwise),
+  // and where a not-yet-saved text came from (for the suggested title)
+  /** @type {{id: string, title: string}|null} */
+  let libraryText = null;
+  /** @type {{fileName?: string, title?: string}} */
+  let textSource = {};
+  let showLibrary = false;
+  let showSaveToLibrary = false;
 
   // Settings
   let wordsPerMinute = 300;
@@ -171,6 +184,8 @@
 
   function handleTextApply(event) {
     text = event.detail.text;
+    libraryText = null;
+    textSource = {};
     stop();
     parseText();
     showTextInput = false;
@@ -186,6 +201,8 @@
     try {
       const doc = await parseDocument(file);
       text = doc.text;
+      libraryText = null;
+      textSource = { fileName: file.name, title: doc.title };
       stop();
       parseText(doc.chapters);
       showTextInput = false;
@@ -201,6 +218,13 @@
 
   function saveCurrentSession() {
     if (words.length === 0) return false;
+    // Library texts keep their position on the server, everything else in the browser
+    if (libraryText) {
+      saveProgress(libraryText.id, currentWordIndex).catch((error) => {
+        console.error('Failed to save progress:', error);
+      });
+      return true;
+    }
     return saveSession({
       text,
       currentWordIndex,
@@ -226,6 +250,8 @@
     if (!session) return false;
 
     text = session.text;
+    libraryText = null;
+    textSource = {};
     // Older sessions have no chapters stored: fall back to detection
     parseText(session.chapters ?? null);
     currentWordIndex = session.currentWordIndex;
@@ -247,6 +273,51 @@
     isManualPause = false;
     showSavedSessionPrompt = false;
     return true;
+  }
+
+  /** @param {import('./lib/library.js').LibraryText} saved */
+  function openLibraryText(saved) {
+    stop();
+    text = saved.content;
+    parseText(saved.chapters);
+    currentWordIndex = Math.min(saved.currentWordIndex, words.length);
+    progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    libraryText = { id: saved.id, title: saved.title };
+    textSource = {};
+    isManualPause = false;
+    showSavedSessionPrompt = false;
+    showLibrary = false;
+  }
+
+  // Library texts belong to the account: close them when nobody is signed in anymore
+  function closeLibraryText() {
+    stop();
+    libraryText = null;
+    text = DEFAULT_TEXT;
+    parseText();
+  }
+
+  $: if ($auth.status !== 'user' && $auth.status !== 'loading' && libraryText) {
+    closeLibraryText();
+  }
+
+  function handleTextSaved(event) {
+    libraryText = { id: event.detail.id, title: event.detail.title };
+    showSaveToLibrary = false;
+  }
+
+  function handleLibraryRenamed(event) {
+    if (libraryText?.id === event.detail.id) libraryText = { ...libraryText, title: event.detail.title };
+  }
+
+  function handleLibraryReset(event) {
+    if (libraryText?.id !== event.detail) return;
+    stop();
+  }
+
+  function handleLibraryDeleted(event) {
+    // The text stays in the reader, it just isn't linked to the library anymore
+    if (libraryText?.id === event.detail) libraryText = null;
   }
 
   function clearSavedSession() {
@@ -393,7 +464,12 @@
   <!-- Header - hidden during focus mode -->
   {#if !isFocusMode}
     <header>
-      <h1>RSVP Reader</h1>
+      <div class="title-group">
+        <h1>RSVP Reader</h1>
+        {#if libraryText}
+          <span class="library-title" title="Open from your library">{libraryText.title}</span>
+        {/if}
+      </div>
       <div class="header-actions">
         {#if chapters.length > 1}
           <select
@@ -451,7 +527,32 @@
             <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
           </svg>
         </button>
-        <AccountMenu />
+        {#if $auth.status === 'user'}
+          {#if !libraryText && words.length > 0}
+            <button
+              class="icon-btn"
+              on:click={() => (showSaveToLibrary = true)}
+              title="Save to library"
+              aria-label="Save to library"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm-1 8h-3v3h-2v-3H8V9h3V6h2v3h3v2z"/>
+              </svg>
+            </button>
+          {/if}
+          <button
+            class="icon-btn"
+            on:click={() => (showLibrary = true)}
+            title="Library"
+            aria-label="Library"
+            class:active={showLibrary}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+            </svg>
+          </button>
+        {/if}
+        <AccountMenu on:library={() => (showLibrary = true)} />
       </div>
     </header>
   {/if}
@@ -578,6 +679,29 @@
         {/if}
       </div>
     </div>
+  {/if}
+
+  {#if showLibrary}
+    <LibraryPanel
+      currentTextId={libraryText?.id ?? null}
+      on:close={() => (showLibrary = false)}
+      on:open={(e) => openLibraryText(e.detail)}
+      on:renamed={handleLibraryRenamed}
+      on:reset={handleLibraryReset}
+      on:deleted={handleLibraryDeleted}
+    />
+  {/if}
+
+  {#if showSaveToLibrary}
+    <SaveToLibraryModal
+      title={defaultTitle({ ...textSource, text })}
+      content={text}
+      {chapters}
+      {currentWordIndex}
+      totalWords={words.length}
+      on:close={() => (showSaveToLibrary = false)}
+      on:saved={handleTextSaved}
+    />
   {/if}
 
   {#if showSavedSessionPrompt && savedSessionInfo}
@@ -714,6 +838,22 @@
     font-weight: 400;
     color: #555;
     margin: 0;
+  }
+
+  .title-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .library-title {
+    color: #888;
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 30vw;
   }
 
   .header-actions {

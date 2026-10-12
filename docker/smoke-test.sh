@@ -111,7 +111,20 @@ expect "Cross-origin requests are blocked" \
   "$(curl -s -w ' %{http_code}' -b "$jar" -X POST -H 'Origin: https://evil.example' \
      -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/auth/logout" | awk '{print $NF" "$0}')" \
   403 '"CSRF"'
-expect "Delete account"               "$(api DELETE /api/auth/account '{"password":"smoke test password"}')" 204
+
+# --- Library ---
+saved=$(api POST /api/texts '{"title":"Smoke text","content":"one two three four","currentWordIndex":1}')
+expect "Save text to library"         "$saved"                                    201 '"totalWords":4'
+text_id=$(grep -o '"id":"[^"]*"' <<<"$saved" | head -n1 | cut -d'"' -f4)
+expect "List library"                 "$(api GET /api/texts)"                    200 '"title":"Smoke text"'
+expect "Open text"                    "$(api GET "/api/texts/$text_id")"         200 '"content":"one two three four"'
+expect "Rename text"                  "$(api PATCH "/api/texts/$text_id" '{"title":"Renamed"}')" 200 '"title":"Renamed"'
+expect "Save progress"                "$(api PUT "/api/texts/$text_id/progress" '{"currentWordIndex":3}')" 204
+expect "Progress is stored"           "$(api GET "/api/texts/$text_id")"         200 '"currentWordIndex":3'
+expect "Delete text"                  "$(api DELETE "/api/texts/$text_id" '{}')" 204
+expect "Text is gone"                 "$(api GET "/api/texts/$text_id")"         404 '"NOT_FOUND"'
+
+expect "Delete account"              "$(api DELETE /api/auth/account '{"password":"smoke test password"}')" 204
 expect "Account is gone"              "$(api POST /api/auth/login "$creds")"     401 '"INVALID_CREDENTIALS"'
 
 if (( failures > 0 )); then

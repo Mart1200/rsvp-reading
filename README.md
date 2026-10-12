@@ -180,6 +180,15 @@ npm run preview
 
 Click **Sign in** in the header to register or log in. The account menu (your username) offers *Change password* (signs out your other devices), *Log out* and *Delete account* (removes the account with all saved texts and progress after a confirmation).
 
+### Library
+
+When signed in, two extra buttons appear in the header:
+
+- **Save to library** (bookmark icon): stores the loaded text with its chapters and your current position in your account. The title is suggested from the EPUB book title, the file name or the first words of pasted text, and can be edited. The button is hidden for texts that are already in the library.
+- **Library** (books icon, also in the account menu): lists your texts with word count, progress and when you last read them. Click a title to continue reading at the saved position. Each entry can be renamed, reset to the beginning or deleted (both with confirmation).
+
+The title of an open library text is shown next to the app name. For library texts, the save button and `Ctrl+S` store the position in your account instead of the browser. Texts that are not in the library keep working exactly like before. Signing out closes an open library text.
+
 ### Saving and Resuming Progress
 
 **Save Progress:**
@@ -232,6 +241,7 @@ rsvp/
 │   │   ├── progress-storage.js # Session save/load utilities
 │   │   ├── api.js              # Fetch wrapper for the backend (ApiError)
 │   │   ├── auth.js             # Auth store and actions (login, register, ...)
+│   │   ├── library.js          # Library API calls, suggested titles, formatting
 │   │   └── components/
 │   │       ├── RSVPDisplay.svelte   # Word display component
 │   │       ├── Controls.svelte      # Playback controls
@@ -240,7 +250,8 @@ rsvp/
 │   │       ├── ProgressBar.svelte   # Progress indicator (clickable)
 │   │       ├── AccountMenu.svelte   # Sign-in button / account menu
 │   │       ├── Modal.svelte         # Dialog base (focus, Escape, form styles)
-│   │       └── *Modal.svelte        # Auth, change password, delete account
+│   │       ├── LibraryPanel.svelte  # Library list: open, rename, reset, delete
+│   │       └── *Modal.svelte        # Auth, account, save to library
 │   └── tests/
 │       ├── setup.js                 # Test setup
 │       ├── helpers/fetch-mock.js    # mockFetch() route table for API calls
@@ -260,7 +271,8 @@ rsvp/
 │   │   ├── db.js               # Postgres pool
 │   │   ├── migrate.js          # SQL migration runner
 │   │   ├── auth/               # Passwords, sessions, validation, rate limits, admin
-│   │   └── routes/             # Route modules (auth.js: /api/auth/*)
+│   │   ├── texts/              # Word counting (same as the reader), text validation
+│   │   └── routes/             # Route modules: auth.js (/api/auth/*), texts.js (/api/texts/*)
 │   ├── migrations/             # Numbered .sql migrations
 │   ├── scripts/                # CLI scripts (migrate, reset-password)
 │   └── tests/

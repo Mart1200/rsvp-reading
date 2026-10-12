@@ -1,8 +1,11 @@
 <script>
+  import { createEventDispatcher } from 'svelte';
   import { auth, logout } from '../auth.js';
   import AuthModal from './AuthModal.svelte';
   import ChangePasswordModal from './ChangePasswordModal.svelte';
   import DeleteAccountModal from './DeleteAccountModal.svelte';
+
+  const dispatch = createEventDispatcher();
 
   /** @type {null|'login'|'password'|'delete'} */
   let dialog = null;
@@ -72,6 +75,7 @@
     {#if menuOpen}
       <div class="menu" role="menu" tabindex="-1" on:keydown={handleMenuKeydown}>
         <div class="menu-user">Signed in as <strong>{$auth.user.username}</strong></div>
+        <button role="menuitem" on:click={() => { menuOpen = false; dispatch('library'); }}>Library</button>
         <button role="menuitem" on:click={() => openDialog('password')}>Change password</button>
         <button role="menuitem" on:click={handleLogout}>Log out</button>
         <button role="menuitem" class="danger" on:click={() => openDialog('delete')}>Delete account</button>
