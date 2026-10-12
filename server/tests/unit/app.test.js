@@ -120,3 +120,36 @@ describe('body limit', () => {
     });
   });
 });
+
+describe('reverse proxy warning', () => {
+  const forwarded = { headers: { 'X-Forwarded-For': '1.2.3.4' } };
+
+  it('warns once when X-Forwarded-For arrives without TRUST_PROXY', async () => {
+    const logger = { warn: vi.fn() };
+    const app = createApp({ pool: healthyPool(), logger });
+
+    await app.request('/api/health', forwarded);
+    await app.request('/api/health', forwarded);
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0][0]).toContain('TRUST_PROXY');
+  });
+
+  it('stays quiet without the header', async () => {
+    const logger = { warn: vi.fn() };
+    const app = createApp({ pool: healthyPool(), logger });
+
+    await app.request('/api/health');
+
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when TRUST_PROXY is enabled', async () => {
+    const logger = { warn: vi.fn() };
+    const app = createApp({ pool: healthyPool(), logger, trustProxy: true });
+
+    await app.request('/api/health', forwarded);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+});

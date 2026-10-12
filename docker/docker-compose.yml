@@ -16,6 +16,8 @@ services:
       # Secure by default. Browsers accept Secure cookies on http://localhost;
       # set to false only for plain http on another host (e.g. a LAN IP)
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # true behind a reverse proxy, so rate limits see the real client IP
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     depends_on:
       db:
         condition: service_healthy

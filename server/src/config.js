@@ -5,7 +5,7 @@ const DEV_ORIGIN = 'http://localhost:5173';
 /**
  * Read and validate server configuration from environment variables
  * @param {Object} env - Environment (usually process.env)
- * @returns {{databaseUrl: string|null, port: number, cookieSecure: boolean, origin: string, staticDir: string|null}}
+ * @returns {{databaseUrl: string|null, port: number, cookieSecure: boolean, origin: string, trustProxy: boolean, staticDir: string|null}}
  */
 export function loadConfig(env) {
   // Either a connection string or the PG* variables pg reads natively
@@ -32,6 +32,8 @@ export function loadConfig(env) {
     cookieSecure: env.COOKIE_SECURE !== 'false',
     // Origin allowed to send mutating requests (CSRF check)
     origin: parseOrigin(env.ORIGIN ?? DEV_ORIGIN),
+    // Behind a reverse proxy: take the client IP for rate limiting from X-Forwarded-For
+    trustProxy: env.TRUST_PROXY === 'true',
     // Frontend build (Vite dist) to serve; unset in development where Vite serves it
     staticDir: env.STATIC_DIR ? resolve(env.STATIC_DIR) : null
   };

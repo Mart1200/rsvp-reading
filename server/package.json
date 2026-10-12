@@ -13,10 +13,12 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration"
+    "test:integration": "vitest run --project integration",
+    "reset-password": "node --env-file-if-exists=.env scripts/reset-password.js"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.4",
+    "@node-rs/argon2": "2.2.1",
     "hono": "^4.13.13",
     "pg": "^8.23.1"
   },

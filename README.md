@@ -72,6 +72,7 @@ npm run dev
 | `PORT` | `3000` | API port |
 | `ORIGIN` | `http://localhost:5173` | Origin allowed to send mutating requests. Required when `NODE_ENV=production` (set in the Docker image) |
 | `COOKIE_SECURE` | `true` | Set to `false` only when served over plain http on a host other than `localhost` |
+| `TRUST_PROXY` | `false` | Set to `true` behind a reverse proxy so rate limits use the client IP from `X-Forwarded-For` (the proxy must append it) |
 | `STATIC_DIR` | – | Frontend build to serve (set in the Docker image; unset in development, where Vite serves the frontend) |
 
 Migrations are plain SQL files in `server/migrations/`, applied in filename order on startup (or with `npm run migrate`). Add a new file such as `002_add_something.sql` and never edit an applied one.
@@ -86,13 +87,45 @@ cp .env.example .env   # set POSTGRES_PASSWORD and ORIGIN for a real deployment
 docker compose up -d --build --wait
 ```
 
-The app will be available at http://localhost:8080. The image is built by `docker/Dockerfile`: it builds the frontend with Vite and the Node server serves it next to the API (SPA fallback, gzip, immutable caching for `/assets/*`). Postgres data is stored in the `pgdata` volume. For HTTPS, put a reverse proxy (e.g. Caddy or Traefik) in front and set `ORIGIN` to the public URL.
+The app will be available at http://localhost:8080. The image is built by `docker/Dockerfile`: it builds the frontend with Vite and the Node server serves it next to the API (SPA fallback, gzip, immutable caching for `/assets/*`). Postgres data is stored in the `pgdata` volume. For HTTPS, put a reverse proxy (e.g. Caddy or Traefik) in front, set `ORIGIN` to the public URL and `TRUST_PROXY=true`.
+
+> **Behind a reverse proxy, set `TRUST_PROXY=true`.** Otherwise every request appears to come from the proxy's IP, so the login and registration rate limits apply to all users at once (anyone could lock out a username, and 10 sign-ups per hour would block registration site-wide). The API logs a warning when it receives `X-Forwarded-For` without `TRUST_PROXY`. Only enable it if the app is reachable exclusively through the proxy, since clients could otherwise fake their IP.
 
 Check that the running stack works end to end:
 
 ```bash
 bash docker/smoke-test.sh
 ```
+
+The smoke test also runs a full account flow (register, log in/out, delete) with a throwaway user.
+
+### Accounts
+
+Accounts are optional: without signing in the app works exactly as before, with progress stored in the browser. Users register with a username (3–32 characters: letters, digits, `_`, `-`; case-insensitive) and a password (8–128 characters, stored as an argon2id hash). Sessions last 30 days and are extended while in use.
+
+Rate limits (in memory, per server process; `429` with `Retry-After`):
+
+| What | Limit |
+|---|---|
+| Failed logins per IP + username | 5 / minute |
+| Failed logins per IP, any username (password spraying) | 30 / 15 minutes |
+| Failed logins per username, any IP (distributed guessing) | 50 / 15 minutes |
+| Registrations per IP (invalid input and taken names don't count) | 10 / hour |
+| Wrong current password per user (change password, delete account) | 5 / minute |
+
+The per-username limit applies to everyone trying that account, including its owner. Locking someone out therefore requires a sustained stream of wrong guesses; this is the trade-off for stopping guessing from many IPs.
+
+There is no email-based password recovery. An admin can reset a password, which also signs the user out everywhere:
+
+```bash
+# Generates and prints a new password
+docker compose exec app node scripts/reset-password.js <username>
+
+# Or set a specific one via stdin (keeps it out of shell history)
+echo 'new password' | docker compose exec -T app node scripts/reset-password.js <username> --password-stdin
+```
+
+Locally: `cd server && npm run reset-password -- <username>`.
 
 ## Usage
 
@@ -142,6 +175,10 @@ npm run preview
 | `Arrow Right` | Skip forward one word |
 | `G` | Open jump to position dialog |
 | `Ctrl+S` / `Cmd+S` | Save current progress |
+
+### Account
+
+Click **Sign in** in the header to register or log in. The account menu (your username) offers *Change password* (signs out your other devices), *Log out* and *Delete account* (removes the account with all saved texts and progress after a confirmation).
 
 ### Saving and Resuming Progress
 
@@ -193,14 +230,21 @@ rsvp/
 │   │   ├── rsvp-utils.js       # Core RSVP utility functions
 │   │   ├── file-parsers.js     # PDF and EPUB parsing utilities
 │   │   ├── progress-storage.js # Session save/load utilities
+│   │   ├── api.js              # Fetch wrapper for the backend (ApiError)
+│   │   ├── auth.js             # Auth store and actions (login, register, ...)
 │   │   └── components/
 │   │       ├── RSVPDisplay.svelte   # Word display component
 │   │       ├── Controls.svelte      # Playback controls
 │   │       ├── Settings.svelte      # Settings panel
 │   │       ├── TextInput.svelte     # Text/file input panel
-│   │       └── ProgressBar.svelte   # Progress indicator (clickable)
+│   │       ├── ProgressBar.svelte   # Progress indicator (clickable)
+│   │       ├── AccountMenu.svelte   # Sign-in button / account menu
+│   │       ├── Modal.svelte         # Dialog base (focus, Escape, form styles)
+│   │       └── *Modal.svelte        # Auth, change password, delete account
 │   └── tests/
 │       ├── setup.js                 # Test setup
+│       ├── helpers/fetch-mock.js    # mockFetch() route table for API calls
+│       ├── components/              # Component tests (@testing-library/svelte)
 │       ├── rsvp-utils.test.js       # RSVP utility tests
 │       ├── file-parsers.test.js     # File parser tests
 │       └── progress-storage.test.js # Progress storage tests
@@ -211,9 +255,14 @@ rsvp/
 │   │   ├── static.js           # Serves the built frontend (SPA fallback, caching)
 │   │   ├── config.js           # Environment configuration
 │   │   ├── errors.js           # HttpError + uniform error body
-│   │   └── migrate.js          # SQL migration runner
+│   │   ├── csrf.js             # Origin + JSON content-type check
+│   │   ├── request.js          # JSON body parsing, client IP
+│   │   ├── db.js               # Postgres pool
+│   │   ├── migrate.js          # SQL migration runner
+│   │   ├── auth/               # Passwords, sessions, validation, rate limits, admin
+│   │   └── routes/             # Route modules (auth.js: /api/auth/*)
 │   ├── migrations/             # Numbered .sql migrations
-│   ├── scripts/                # CLI scripts (npm run migrate)
+│   ├── scripts/                # CLI scripts (migrate, reset-password)
 │   └── tests/
 │       ├── unit/               # No database needed
 │       ├── integration/        # Run against Postgres
@@ -258,15 +307,16 @@ Writing new API tests:
 
 ```js
 import { setupTestApp } from '../helpers/app.js';
-import { createUser, createText } from '../helpers/fixtures.js';
+import { createText } from '../helpers/fixtures.js';
 
 const ctx = setupTestApp(); // app + pool on the test DB, tables truncated after each test
 
 it('returns the text', async () => {
-  const user = await createUser(ctx.pool);
+  const { user, cookie } = await ctx.loggedInUser(); // user with password + session
   const text = await createText(ctx.pool, user.id, { title: 'Book' });
 
-  const res = await ctx.request('GET', `/api/texts/${text.id}`);
+  // Mutating requests get a matching Origin and JSON content type automatically
+  const res = await ctx.request('GET', `/api/texts/${text.id}`, { cookie });
   expect(res.status).toBe(200);
 });
 ```

@@ -64,6 +64,56 @@ else
   fail "No /assets/*.js bundle referenced in index.html"
 fi
 
+# --- Auth flow (needs ORIGIN to match BASE_URL, as with the Compose defaults) ---
+ORIGIN="${ORIGIN:-$BASE_URL}"
+jar=$(mktemp)
+user="smoke_$(date +%s)_$RANDOM"
+creds="{\"username\":\"$user\",\"password\":\"smoke test password\"}"
+
+# Best effort: remove the test account even if a step below fails, so failed runs
+# don't leave smoke_* users behind (no-op when the account was already deleted)
+cleanup() {
+  local cleanup_jar
+  cleanup_jar=$(mktemp)
+  local json=(-s -o /dev/null -H "Origin: $ORIGIN" -H 'Content-Type: application/json')
+  curl "${json[@]}" -c "$cleanup_jar" -X POST --data "$creds" "$BASE_URL/api/auth/login" || true
+  curl "${json[@]}" -b "$cleanup_jar" -X DELETE --data '{"password":"smoke test password"}' \
+    "$BASE_URL/api/auth/account" || true
+  rm -f "$jar" "$cleanup_jar"
+}
+trap cleanup EXIT
+
+# api <method> <path> [json body] -> prints "<status> <body>", using the cookie jar
+api() {
+  local args=(-s -w '\n%{http_code}' -X "$1" -b "$jar" -c "$jar" -H "Origin: $ORIGIN")
+  [[ -n "${3:-}" ]] && args+=(-H 'Content-Type: application/json' --data "$3")
+  local out
+  out=$(curl "${args[@]}" "$BASE_URL$2")
+  echo "$(tail -n1 <<<"$out") $(sed '$d' <<<"$out")"
+}
+
+# expect <description> <actual "status body"> <expected status> [expected body substring]
+expect() {
+  local description="$1" actual="$2" expected_status="$3" expected_body="${4:-}"
+  if [[ "${actual%% *}" == "$expected_status" && "$actual" == *"$expected_body"* ]]; then
+    pass "$description"
+  else
+    fail "$description: expected $expected_status '$expected_body', got '${actual:0:200}'"
+  fi
+}
+
+expect "Register"                     "$(api POST /api/auth/register "$creds")" 201 "\"username\":\"$user\""
+expect "Session cookie works"         "$(api GET /api/auth/me)"                  200 "\"username\":\"$user\""
+expect "Log out"                      "$(api POST /api/auth/logout '{}')"        204
+expect "Logged out"                   "$(api GET /api/auth/me)"                  401 '"UNAUTHENTICATED"'
+expect "Log in"                       "$(api POST /api/auth/login "$creds")"     200 "\"username\":\"$user\""
+expect "Cross-origin requests are blocked" \
+  "$(curl -s -w ' %{http_code}' -b "$jar" -X POST -H 'Origin: https://evil.example' \
+     -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/auth/logout" | awk '{print $NF" "$0}')" \
+  403 '"CSRF"'
+expect "Delete account"               "$(api DELETE /api/auth/account '{"password":"smoke test password"}')" 204
+expect "Account is gone"              "$(api POST /api/auth/login "$creds")"     401 '"INVALID_CREDENTIALS"'
+
 if (( failures > 0 )); then
   echo "$failures smoke test(s) failed"
   exit 1
