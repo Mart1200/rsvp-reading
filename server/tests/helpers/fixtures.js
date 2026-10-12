@@ -1,3 +1,5 @@
+import { hashPassword } from '../../src/auth/password.js';
+
 /**
  * Insert test rows directly into the database.
  * Every field can be overridden; defaults produce valid rows.
@@ -8,15 +10,17 @@ const unique = () => `${Date.now().toString(36)}${(counter++).toString(36)}`;
 
 /**
  * @param {import('pg').Pool} pool
- * @param {Object} [overrides] - Column values, e.g. { username: 'alice' }
+ * @param {Object} [overrides] - Column values, e.g. { username: 'alice' },
+ *   or `password` to store a real argon2 hash of it
  * @returns {Promise<Object>} Inserted users row
  */
 export async function createUser(pool, overrides = {}) {
+  const { password, ...columns } = overrides;
   const row = {
     username: `user_${unique()}`,
-    password_hash: 'not-a-real-hash',
+    password_hash: password ? await hashPassword(password) : 'not-a-real-hash',
     settings: {},
-    ...overrides
+    ...columns
   };
   const { rows } = await pool.query(
     `INSERT INTO users (username, password_hash, settings)

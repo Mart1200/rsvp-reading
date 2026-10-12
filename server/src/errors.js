@@ -6,11 +6,14 @@ export class HttpError extends Error {
    * @param {number} status - HTTP status code
    * @param {string} code - Machine-readable error code, e.g. "VALIDATION"
    * @param {string} message - Human-readable message
+   * @param {Object} [options]
+   * @param {Record<string, string>} [options.headers] - Extra response headers, e.g. Retry-After
    */
-  constructor(status, code, message) {
+  constructor(status, code, message, { headers = {} } = {}) {
     super(message);
     this.status = status;
     this.code = code;
+    this.headers = headers;
   }
 }
 

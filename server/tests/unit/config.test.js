@@ -26,6 +26,7 @@ describe('loadConfig', () => {
       port: 3000,
       cookieSecure: true,
       origin: 'http://localhost:5173',
+      trustProxy: false,
       staticDir: null
     });
   });
@@ -40,6 +41,11 @@ describe('loadConfig', () => {
     expect(config.port).toBe(4000);
     expect(config.cookieSecure).toBe(false);
     expect(config.origin).toBe('https://rsvp.example.com');
+  });
+
+  it('enables TRUST_PROXY only for "true"', () => {
+    expect(loadConfig({ DATABASE_URL, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ DATABASE_URL, TRUST_PROXY: '1' }).trustProxy).toBe(false);
   });
 
   it('resolves STATIC_DIR to an absolute path', () => {

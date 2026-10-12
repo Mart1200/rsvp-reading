@@ -9,8 +9,16 @@ const pool = createPool(config);
 
 await runMigrations(pool);
 
+const app = createApp({
+  pool,
+  origin: config.origin,
+  cookieSecure: config.cookieSecure,
+  trustProxy: config.trustProxy,
+  staticDir: config.staticDir
+});
+
 const server = serve(
-  { fetch: createApp({ pool, staticDir: config.staticDir }).fetch, port: config.port, hostname: '0.0.0.0' },
+  { fetch: app.fetch, port: config.port, hostname: '0.0.0.0' },
   (info) => console.log(`API listening on port ${info.port}`)
 );
 
