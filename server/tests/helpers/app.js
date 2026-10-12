@@ -9,6 +9,8 @@ export const TEST_ORIGIN = 'http://localhost:5173';
 // High enough that ordinary tests never hit them; rate-limit tests pass their own
 export const RELAXED_RATE_LIMITS = {
   login: { limit: 1000, windowMs: 60_000 },
+  loginIp: { limit: 1000, windowMs: 60_000 },
+  loginAccount: { limit: 1000, windowMs: 60_000 },
   register: { limit: 1000, windowMs: 60_000 },
   password: { limit: 1000, windowMs: 60_000 }
 };

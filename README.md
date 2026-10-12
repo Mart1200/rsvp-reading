@@ -89,6 +89,8 @@ docker compose up -d --build --wait
 
 The app will be available at http://localhost:8080. The image is built by `docker/Dockerfile`: it builds the frontend with Vite and the Node server serves it next to the API (SPA fallback, gzip, immutable caching for `/assets/*`). Postgres data is stored in the `pgdata` volume. For HTTPS, put a reverse proxy (e.g. Caddy or Traefik) in front, set `ORIGIN` to the public URL and `TRUST_PROXY=true`.
 
+> **Behind a reverse proxy, set `TRUST_PROXY=true`.** Otherwise every request appears to come from the proxy's IP, so the login and registration rate limits apply to all users at once (anyone could lock out a username, and 10 sign-ups per hour would block registration site-wide). The API logs a warning when it receives `X-Forwarded-For` without `TRUST_PROXY`. Only enable it if the app is reachable exclusively through the proxy, since clients could otherwise fake their IP.
+
 Check that the running stack works end to end:
 
 ```bash
@@ -100,6 +102,18 @@ The smoke test also runs a full account flow (register, log in/out, delete) with
 ### Accounts
 
 Accounts are optional: without signing in the app works exactly as before, with progress stored in the browser. Users register with a username (3–32 characters: letters, digits, `_`, `-`; case-insensitive) and a password (8–128 characters, stored as an argon2id hash). Sessions last 30 days and are extended while in use.
+
+Rate limits (in memory, per server process; `429` with `Retry-After`):
+
+| What | Limit |
+|---|---|
+| Failed logins per IP + username | 5 / minute |
+| Failed logins per IP, any username (password spraying) | 30 / 15 minutes |
+| Failed logins per username, any IP (distributed guessing) | 50 / 15 minutes |
+| Registrations per IP (invalid input and taken names don't count) | 10 / hour |
+| Wrong current password per user (change password, delete account) | 5 / minute |
+
+The per-username limit applies to everyone trying that account, including its owner. Locking someone out therefore requires a sustained stream of wrong guesses; this is the trade-off for stopping guessing from many IPs.
 
 There is no email-based password recovery. An admin can reset a password, which also signs the user out everywhere:
 

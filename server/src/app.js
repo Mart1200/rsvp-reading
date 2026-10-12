@@ -15,10 +15,18 @@ export const HEALTH_TIMEOUT_MS = 2000;
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 
-/** Rate limits from the auth spec; tests may override them */
+/** Rate limits for auth endpoints; tests may override them */
 export const DEFAULT_RATE_LIMITS = {
+  // Failed logins per IP + username
   login: { limit: 5, windowMs: MINUTE },
+  // Failed logins per IP across usernames (password spraying)
+  loginIp: { limit: 30, windowMs: 15 * MINUTE },
+  // Failed logins per username across IPs (distributed guessing). A hard limit on purpose:
+  // locking someone out takes sustained effort, unlimited guessing would be worse.
+  loginAccount: { limit: 50, windowMs: 15 * MINUTE },
+  // Registrations per IP
   register: { limit: 10, windowMs: HOUR },
+  // Wrong current passwords per user (password change, account deletion)
   password: { limit: 5, windowMs: MINUTE }
 };
 
@@ -47,6 +55,7 @@ export function withTimeout(promise, ms) {
  * @param {string|null} [deps.staticDir] - Frontend build to serve; null serves the API only
  * @param {number} [deps.healthTimeoutMs] - Max time the health check waits for the database
  * @param {Partial<typeof DEFAULT_RATE_LIMITS>} [deps.rateLimits] - Overrides per limiter
+ * @param {{warn: (...args: any[]) => void}} [deps.logger] - For configuration warnings
  * @returns {Hono}
  */
 export function createApp({
@@ -56,7 +65,8 @@ export function createApp({
   trustProxy = false,
   staticDir = null,
   healthTimeoutMs = HEALTH_TIMEOUT_MS,
-  rateLimits = {}
+  rateLimits = {},
+  logger = console
 }) {
   const app = new Hono();
   const limiters = Object.fromEntries(
@@ -65,6 +75,21 @@ export function createApp({
   );
 
   app.use('*', compress());
+
+  if (!trustProxy) {
+    let warned = false;
+    app.use('*', async (c, next) => {
+      if (!warned && c.req.header('x-forwarded-for')) {
+        warned = true;
+        logger.warn(
+          'Received X-Forwarded-For but TRUST_PROXY is not enabled. Behind a reverse proxy all ' +
+          'clients share the proxy IP, so login and registration rate limits hit everyone at once. ' +
+          'Set TRUST_PROXY=true if the app is only reachable through the proxy.'
+        );
+      }
+      await next();
+    });
+  }
 
   app.use('/api/*', bodyLimit({
     maxSize: MAX_BODY_BYTES,

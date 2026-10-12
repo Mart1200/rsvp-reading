@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createRateLimiter } from '../../src/auth/rate-limit.js';
+import { createRateLimiter, consume } from '../../src/auth/rate-limit.js';
 
 function limiterWithClock(options) {
   const clock = { time: 1_000_000 };
@@ -83,5 +83,54 @@ describe('createRateLimiter', () => {
     for (let i = 0; i < 500; i++) limiter.hit(`new-${i}`);
 
     expect(limiter.size).toBe(500);
+  });
+});
+
+describe('undo', () => {
+  it('removes only the most recent hit', () => {
+    const { limiter } = limiterWithClock({ limit: 2, windowMs: 60_000 });
+    limiter.hit('k');
+    limiter.hit('k');
+
+    limiter.undo('k');
+
+    expect(limiter.check('k').limited).toBe(false);
+    limiter.hit('k');
+    expect(limiter.check('k').limited).toBe(true);
+  });
+
+  it('is a no-op for unknown keys', () => {
+    const { limiter } = limiterWithClock({ limit: 1, windowMs: 60_000 });
+
+    expect(() => limiter.undo('nope')).not.toThrow();
+    expect(limiter.size).toBe(0);
+  });
+});
+
+describe('consume', () => {
+  it('records a hit on every limiter when none is exhausted', () => {
+    const { limiter: a } = limiterWithClock({ limit: 1, windowMs: 60_000 });
+    const { limiter: b } = limiterWithClock({ limit: 1, windowMs: 60_000 });
+
+    expect(consume([[a, 'x'], [b, 'y']])).toEqual({ limited: false, retryAfterSeconds: 0 });
+    expect(a.check('x').limited).toBe(true);
+    expect(b.check('y').limited).toBe(true);
+  });
+
+  it('records nothing when any limiter is exhausted', () => {
+    const { limiter: a } = limiterWithClock({ limit: 5, windowMs: 60_000 });
+    const { limiter: b } = limiterWithClock({ limit: 1, windowMs: 60_000 });
+    b.hit('y');
+
+    expect(consume([[a, 'x'], [b, 'y']]).limited).toBe(true);
+    expect(a.size).toBe(0);
+  });
+
+  it('lets exactly `limit` callers through even when called back to back', () => {
+    const { limiter } = limiterWithClock({ limit: 3, windowMs: 60_000 });
+
+    const results = Array.from({ length: 10 }, () => consume([[limiter, 'k']]).limited);
+
+    expect(results.filter((limited) => !limited)).toHaveLength(3);
   });
 });

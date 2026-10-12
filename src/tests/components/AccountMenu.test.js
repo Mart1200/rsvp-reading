@@ -3,15 +3,13 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 import AccountMenu from '../../lib/components/AccountMenu.svelte';
 import { auth } from '../../lib/auth.js';
-import { mockFetch } from '../helpers/fetch-mock.js';
+import { mockFetch, apiError } from '../helpers/fetch-mock.js';
 
 const alice = { id: 'u1', username: 'alice', settings: {} };
 
 function renderMenu(state) {
   auth.set(state);
-  const onLogout = vi.fn();
-  render(AccountMenu, { events: { logout: onLogout } });
-  return { onLogout };
+  render(AccountMenu);
 }
 
 afterEach(() => {
@@ -55,27 +53,43 @@ describe('AccountMenu', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('logs out and notifies the app', async () => {
+  it('logs out and shows the sign-in button again', async () => {
     mockFetch({ 'POST /api/auth/logout': { status: 204 } });
-    const { onLogout } = renderMenu({ status: 'user', user: alice });
+    renderMenu({ status: 'user', user: alice });
 
     await fireEvent.click(screen.getByRole('button', { name: /alice/ }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
 
-    await vi.waitFor(() => expect(onLogout).toHaveBeenCalled());
+    expect(await screen.findByRole('button', { name: /Sign in/ })).toBeInTheDocument();
     expect(get(auth).status).toBe('guest');
-    expect(screen.getByRole('button', { name: /Sign in/ })).toBeInTheDocument();
   });
 
   it('shows an error when logout fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
-    const { onLogout } = renderMenu({ status: 'user', user: alice });
+    renderMenu({ status: 'user', user: alice });
 
     await fireEvent.click(screen.getByRole('button', { name: /alice/ }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach the server');
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(get(auth).status).toBe('user');
+  });
+
+  it('switches to the sign-in dialog when the session turns out to be gone', async () => {
+    mockFetch({
+      'POST /api/auth/password': { status: 401, body: apiError('UNAUTHENTICATED', 'Not logged in') }
+    });
+    renderMenu({ status: 'user', user: alice });
+
+    await fireEvent.click(screen.getByRole('button', { name: /alice/ }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Change password' }));
+    await fireEvent.input(screen.getByLabelText('Current password'), { target: { value: 'old password' } });
+    await fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'new password' } });
+    await fireEvent.input(screen.getByLabelText('Repeat new password'), { target: { value: 'new password' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Sign in' })).toBeInTheDocument();
+    expect(get(auth).status).toBe('guest');
   });
 
   it.each([

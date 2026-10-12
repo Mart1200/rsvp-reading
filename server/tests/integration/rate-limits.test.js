@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { setupTestApp, TEST_ORIGIN } from '../helpers/app.js';
 import { createUser } from '../helpers/fixtures.js';
 
-// Spec limits, but with trustProxy so tests can simulate different client IPs
+// Spec limits, but with trustProxy so tests can simulate different client IPs.
+// The cross-username/cross-IP caps are tested separately in rate-limits-global.test.js.
 const ctx = setupTestApp({
   trustProxy: true,
   rateLimits: {
     login: { limit: 5, windowMs: 60_000 },
+    loginIp: { limit: 1000, windowMs: 60_000 },
+    loginAccount: { limit: 1000, windowMs: 60_000 },
     register: { limit: 10, windowMs: 3_600_000 },
     password: { limit: 5, windowMs: 60_000 }
   }
@@ -70,6 +73,18 @@ describe('login rate limit', () => {
     expect((await login('x'.repeat(64) + 'different', 'wrong guess', '10.0.0.6')).status).toBe(429);
   });
 
+  it('holds under concurrent requests (attempts are reserved before verifying)', async () => {
+    await createUser(ctx.pool, { username: 'victim_race', password: 'correct horse' });
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => login('victim_race', 'wrong guess', '10.0.0.7'))
+    );
+    const statuses = results.map((r) => r.status);
+
+    expect(statuses.filter((s) => s === 401)).toHaveLength(5);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(15);
+  });
+
   it('also limits guesses for unknown usernames', async () => {
     for (let i = 0; i < 5; i++) await login('ghost', 'wrong guess');
 
@@ -93,10 +108,24 @@ describe('registration rate limit', () => {
     expect((await register('reg_b0', '10.1.0.2')).status).toBe(201);
   });
 
-  it('counts failed attempts too', async () => {
-    for (let i = 0; i < 10; i++) await register('x', '10.1.0.3');
+  it('does not charge invalid input or taken usernames', async () => {
+    await createUser(ctx.pool, { username: 'taken_name' });
+    for (let i = 0; i < 10; i++) {
+      expect((await register('x', '10.1.0.3')).status).toBe(400);
+      expect((await register('TAKEN_NAME', '10.1.0.3')).status).toBe(409);
+    }
 
-    expect((await register('valid_name', '10.1.0.3')).status).toBe(429);
+    expect((await register('valid_name', '10.1.0.3')).status).toBe(201);
+  });
+
+  it('holds under concurrent requests', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 15 }, (_, i) => register(`race_${i}`, '10.1.0.4'))
+    );
+    const statuses = results.map((r) => r.status);
+
+    expect(statuses.filter((s) => s === 201)).toHaveLength(10);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(5);
   });
 });
 
@@ -111,5 +140,30 @@ describe('current password rate limit', () => {
     for (let i = 0; i < 5; i++) expect((await change('wrong guess')).status).toBe(403);
 
     expect((await change('correct horse')).status).toBe(429);
+  });
+
+  it('holds under concurrent requests with a stolen session', async () => {
+    const { cookie } = await ctx.loggedInUser({ password: 'correct horse' });
+
+    const results = await Promise.all(Array.from({ length: 12 }, (_, i) =>
+      ctx.request('DELETE', '/api/auth/account', { body: { password: `guess ${i}` }, cookie })
+    ));
+    const statuses = results.map((r) => r.status);
+
+    expect(statuses.filter((s) => s === 403)).toHaveLength(5);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(7);
+  });
+
+  it('resets after the correct password', async () => {
+    const { cookie } = await ctx.loggedInUser({ password: 'correct horse' });
+    const change = (currentPassword, newPassword) => ctx.request('POST', '/api/auth/password', {
+      body: { currentPassword, newPassword },
+      cookie
+    });
+
+    for (let i = 0; i < 4; i++) await change('wrong guess', 'new password');
+    expect((await change('correct horse', 'second password')).status).toBe(204);
+
+    for (let i = 0; i < 5; i++) expect((await change('wrong guess', 'x password')).status).toBe(403);
   });
 });

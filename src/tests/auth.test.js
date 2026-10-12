@@ -122,6 +122,25 @@ describe('actions', () => {
     expect(get(auth).status).toBe('user');
   });
 
+  it.each([
+    ['changePassword', () => changePassword('old password', 'new password'), 'POST /api/auth/password'],
+    ['deleteAccount', () => deleteAccount('correct horse'), 'DELETE /api/auth/account']
+  ])('%s signs out locally when the session is gone (401)', async (_, action, route) => {
+    auth.set({ status: 'user', user: alice });
+    mockFetch({ [route]: { status: 401, body: apiError('UNAUTHENTICATED', 'Not logged in') } });
+
+    await expect(action()).rejects.toMatchObject({ status: 401 });
+    expect(get(auth)).toEqual({ status: 'guest', user: null });
+  });
+
+  it('a wrong current password keeps the user signed in', async () => {
+    auth.set({ status: 'user', user: alice });
+    mockFetch({ 'POST /api/auth/password': { status: 403, body: apiError('INVALID_PASSWORD') } });
+
+    await expect(changePassword('wrong', 'new password')).rejects.toMatchObject({ status: 403 });
+    expect(get(auth).status).toBe('user');
+  });
+
   it('deleteAccount returns to guest', async () => {
     auth.set({ status: 'user', user: alice });
     const server = mockFetch({ 'DELETE /api/auth/account': { status: 204 } });

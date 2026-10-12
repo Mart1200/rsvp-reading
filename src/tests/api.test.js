@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { api, ApiError } from '../lib/api.js';
+import { api, ApiError, onUnauthenticated } from '../lib/api.js';
 import { mockFetch, apiError } from './helpers/fetch-mock.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  onUnauthenticated(null);
 });
 
 describe('api', () => {
@@ -55,6 +56,24 @@ describe('api', () => {
     const error = await api('/api/thing').catch((e) => e);
 
     expect(error).toMatchObject({ status: 502, code: 'HTTP_ERROR', message: 'Request failed (502)' });
+  });
+
+  it('notifies the unauthenticated handler when the session is gone', async () => {
+    const handler = vi.fn();
+    onUnauthenticated(handler);
+    mockFetch({ 'GET /api/thing': { status: 401, body: apiError('UNAUTHENTICATED', 'Not logged in') } });
+
+    await expect(api('/api/thing')).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat wrong login credentials as a lost session', async () => {
+    const handler = vi.fn();
+    onUnauthenticated(handler);
+    mockFetch({ 'POST /api/auth/login': { status: 401, body: apiError('INVALID_CREDENTIALS') } });
+
+    await expect(api('/api/auth/login', { method: 'POST' })).rejects.toThrow();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('turns network failures into status 0', async () => {

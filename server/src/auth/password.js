@@ -25,7 +25,9 @@ export async function verifyPassword(passwordHash, password) {
   }
 }
 
-let dummyHash;
+// Computed once at module load, so even the first unknown-user login after a
+// restart costs exactly one verification, like a wrong password for a real user
+const dummyHash = hashPassword('dummy password for timing equalization');
 
 /**
  * Spend the same time as a real verification when the user doesn't exist,
@@ -34,7 +36,6 @@ let dummyHash;
  * @returns {Promise<false>}
  */
 export async function verifyAgainstDummy(password) {
-  dummyHash ??= await hashPassword('dummy password for timing equalization');
-  await verifyPassword(dummyHash, password);
+  await verifyPassword(await dummyHash, password);
   return false;
 }

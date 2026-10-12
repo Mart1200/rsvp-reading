@@ -1,17 +1,19 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { auth, logout } from '../auth.js';
   import AuthModal from './AuthModal.svelte';
   import ChangePasswordModal from './ChangePasswordModal.svelte';
   import DeleteAccountModal from './DeleteAccountModal.svelte';
-
-  const dispatch = createEventDispatcher();
 
   /** @type {null|'login'|'password'|'delete'} */
   let dialog = null;
   let menuOpen = false;
   let menuError = '';
   let root;
+
+  // Session ended elsewhere while an account dialog was open: offer to sign in again
+  $: if ($auth.status === 'guest' && (dialog === 'password' || dialog === 'delete')) {
+    dialog = 'login';
+  }
 
   function openDialog(name) {
     menuOpen = false;
@@ -24,16 +26,11 @@
     try {
       await logout();
       menuOpen = false;
-      dispatch('logout');
     } catch (error) {
       menuError = error.message;
     }
   }
 
-  function handleDeleted() {
-    dialog = null;
-    dispatch('logout');
-  }
 
   function handleWindowClick(e) {
     if (menuOpen && root && !root.contains(e.target)) menuOpen = false;
@@ -89,7 +86,7 @@
 {:else if dialog === 'password'}
   <ChangePasswordModal on:close={() => (dialog = null)} />
 {:else if dialog === 'delete'}
-  <DeleteAccountModal on:close={() => (dialog = null)} on:deleted={handleDeleted} />
+  <DeleteAccountModal on:close={() => (dialog = null)} on:deleted={() => (dialog = null)} />
 {/if}
 
 <style>

@@ -3,6 +3,7 @@ import { HttpError } from '../errors.js';
 import { readJsonObject } from '../request.js';
 import { hashPassword, verifyPassword, verifyAgainstDummy } from '../auth/password.js';
 import { usernameError, passwordError, assertValid } from '../auth/validation.js';
+import { consume } from '../auth/rate-limit.js';
 import {
   createSession, deleteSession, deleteUserSessions,
   setSessionCookie, clearSessionCookie, requireUser
@@ -17,13 +18,14 @@ function toUser(row) {
 }
 
 /**
- * Throw 429 when the limiter is exhausted for this key
- * @param {ReturnType<import('../auth/rate-limit.js').createRateLimiter>} limiter
- * @param {string} key
+ * Reserve an attempt on every [limiter, key] pair, or throw 429 if any is exhausted.
+ * The attempt is counted before the slow password check, so concurrent requests
+ * can't all slip through; legitimate attempts are refunded afterwards.
+ * @param {Array<[ReturnType<import('../auth/rate-limit.js').createRateLimiter>, string]>} entries
  * @param {string} message
  */
-function assertNotLimited(limiter, key, message) {
-  const { limited, retryAfterSeconds } = limiter.check(key);
+function reserveAttempt(entries, message) {
+  const { limited, retryAfterSeconds } = consume(entries);
   if (limited) {
     throw new HttpError(429, 'RATE_LIMITED', `${message} Try again in ${retryAfterSeconds} s.`, {
       headers: { 'Retry-After': String(retryAfterSeconds) }
@@ -37,8 +39,10 @@ function assertNotLimited(limiter, key, message) {
  * @param {import('pg').Pool} deps.pool
  * @param {boolean} deps.cookieSecure
  * @param {(c: import('hono').Context) => string} deps.getIp
- * @param {Object} deps.limiters
+ * @param {Object} deps.limiters - see DEFAULT_RATE_LIMITS in app.js
  * @param {ReturnType<import('../auth/rate-limit.js').createRateLimiter>} deps.limiters.login - failed logins per IP + username
+ * @param {ReturnType<import('../auth/rate-limit.js').createRateLimiter>} deps.limiters.loginIp - failed logins per IP, any username (password spraying)
+ * @param {ReturnType<import('../auth/rate-limit.js').createRateLimiter>} deps.limiters.loginAccount - failed logins per username, any IP (distributed guessing)
  * @param {ReturnType<import('../auth/rate-limit.js').createRateLimiter>} deps.limiters.register - registrations per IP
  * @param {ReturnType<import('../auth/rate-limit.js').createRateLimiter>} deps.limiters.password - wrong current passwords per user
  * @returns {Hono}
@@ -58,26 +62,27 @@ export function authRoutes({ pool, cookieSecure, getIp, limiters }) {
   // Check the logged-in user's password, limiting wrong guesses with a stolen session
   async function assertCurrentPassword(user, password) {
     const key = user.id;
-    assertNotLimited(limiters.password, key, 'Too many wrong passwords.');
+    reserveAttempt([[limiters.password, key]], 'Too many wrong passwords.');
 
     const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
     const ok = typeof password === 'string' && rows.length > 0 &&
       await verifyPassword(rows[0].password_hash, password);
-    if (!ok) {
-      limiters.password.hit(key);
-      throw new HttpError(403, 'INVALID_PASSWORD', 'Password is wrong');
-    }
+    // A wrong password keeps the reserved attempt counted
+    if (!ok) throw new HttpError(403, 'INVALID_PASSWORD', 'Password is wrong');
     limiters.password.reset(key);
   }
 
   routes.post('/register', async (c) => {
-    const ipKey = getIp(c);
-    assertNotLimited(limiters.register, ipKey, 'Too many registrations.');
-    limiters.register.hit(ipKey);
-
     const { username, password } = await readJsonObject(c);
     assertValid(usernameError(username));
     assertValid(passwordError(password));
+
+    // Cheap check first, so retrying taken names costs neither a hash nor quota
+    const taken = await pool.query('SELECT 1 FROM users WHERE lower(username) = lower($1)', [username]);
+    if (taken.rows.length > 0) throw new HttpError(409, 'USERNAME_TAKEN', 'Username is already taken');
+
+    const ipKey = getIp(c);
+    reserveAttempt([[limiters.register, ipKey]], 'Too many registrations.');
 
     let row;
     try {
@@ -88,7 +93,9 @@ export function authRoutes({ pool, cookieSecure, getIp, limiters }) {
       );
       row = rows[0];
     } catch (error) {
+      // Someone registered the same name in the meantime
       if (error.code === '23505') {
+        limiters.register.undo(ipKey);
         throw new HttpError(409, 'USERNAME_TAKEN', 'Username is already taken');
       }
       throw error;
@@ -104,9 +111,14 @@ export function authRoutes({ pool, cookieSecure, getIp, limiters }) {
       throw new HttpError(400, 'VALIDATION', 'Username and password are required');
     }
 
+    const ip = getIp(c);
     // Cap the key length: usernames are at most 32 characters, but the body may be up to 20 MB
-    const key = `${getIp(c)}|${username.toLowerCase().slice(0, 64)}`;
-    assertNotLimited(limiters.login, key, 'Too many failed login attempts.');
+    const account = username.toLowerCase().slice(0, 64);
+    const key = `${ip}|${account}`;
+    reserveAttempt(
+      [[limiters.login, key], [limiters.loginIp, ip], [limiters.loginAccount, account]],
+      'Too many failed login attempts.'
+    );
 
     const { rows } = await pool.query(
       'SELECT id, username, settings, password_hash FROM users WHERE lower(username) = lower($1)',
@@ -118,12 +130,15 @@ export function authRoutes({ pool, cookieSecure, getIp, limiters }) {
       : await verifyAgainstDummy(password);
 
     if (!ok) {
-      limiters.login.hit(key);
-      // Same message for unknown users and wrong passwords
+      // The reserved attempt stays counted as a failure.
+      // Same message for unknown users and wrong passwords.
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Wrong username or password');
     }
 
+    // Successful logins are not failures: refund the reserved attempts
     limiters.login.reset(key);
+    limiters.loginIp.undo(ip);
+    limiters.loginAccount.undo(account);
     await startSession(c, row.id);
     return c.json({ user: toUser(row) });
   });

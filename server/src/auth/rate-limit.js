@@ -2,6 +2,22 @@
 const SWEEP_EVERY = 1000;
 
 /**
+ * Check several limiters and, only if none is exhausted, record a hit on each.
+ * Synchronous on purpose: with no await between check and hit, concurrent
+ * requests cannot all pass the check before the first hit is recorded.
+ * @param {Array<[ReturnType<typeof createRateLimiter>, string]>} entries - [limiter, key] pairs
+ * @returns {{limited: boolean, retryAfterSeconds: number}}
+ */
+export function consume(entries) {
+  for (const [limiter, key] of entries) {
+    const result = limiter.check(key);
+    if (result.limited) return result;
+  }
+  for (const [limiter, key] of entries) limiter.hit(key);
+  return { limited: false, retryAfterSeconds: 0 };
+}
+
+/**
  * In-memory sliding-window rate limiter (single process).
  * @param {Object} options
  * @param {number} options.limit - Allowed hits per window
@@ -45,6 +61,17 @@ export function createRateLimiter({ limit, windowMs, now = () => Date.now() }) {
         hitsSinceSweep = 0;
         sweep(time);
       }
+    },
+
+    /**
+     * Remove the most recent hit, e.g. when a reserved attempt turned out to be legitimate
+     * @param {string} key
+     */
+    undo(key) {
+      const stamps = hits.get(key);
+      if (!stamps) return;
+      stamps.pop();
+      if (stamps.length === 0) hits.delete(key);
     },
 
     /** @param {string} key */

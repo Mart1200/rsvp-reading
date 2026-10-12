@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { api } from './api.js';
+import { api, onUnauthenticated } from './api.js';
 
 /**
  * @typedef {Object} User
@@ -46,6 +46,11 @@ export const auth = writable({ status: 'loading', user: null });
 
 const signedIn = (user) => auth.set({ status: 'user', user });
 const signedOut = () => auth.set({ status: 'guest', user: null });
+
+// Any request that finds the session gone signs the user out locally as well
+onUnauthenticated(() => {
+  if (get(auth).status === 'user') signedOut();
+});
 
 /**
  * Determine the auth state on app start

@@ -15,6 +15,17 @@ export class ApiError extends Error {
   }
 }
 
+let unauthenticatedHandler = null;
+
+/**
+ * Register a callback for responses saying the session is gone
+ * (expired, or revoked by a password change or admin reset on another device)
+ * @param {(() => void)|null} handler
+ */
+export function onUnauthenticated(handler) {
+  unauthenticatedHandler = handler;
+}
+
 /**
  * Call an API endpoint
  * @param {string} path - e.g. "/api/auth/me"
@@ -49,6 +60,8 @@ export async function api(path, { method = 'GET', body } = {}) {
   }
 
   if (!res.ok) {
+    // Only a missing session, not e.g. wrong credentials at login (INVALID_CREDENTIALS)
+    if (res.status === 401 && data?.error?.code === 'UNAUTHENTICATED') unauthenticatedHandler?.();
     throw new ApiError(
       res.status,
       data?.error?.code ?? 'HTTP_ERROR',

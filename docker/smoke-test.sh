@@ -67,9 +67,21 @@ fi
 # --- Auth flow (needs ORIGIN to match BASE_URL, as with the Compose defaults) ---
 ORIGIN="${ORIGIN:-$BASE_URL}"
 jar=$(mktemp)
-trap 'rm -f "$jar"' EXIT
 user="smoke_$(date +%s)_$RANDOM"
 creds="{\"username\":\"$user\",\"password\":\"smoke test password\"}"
+
+# Best effort: remove the test account even if a step below fails, so failed runs
+# don't leave smoke_* users behind (no-op when the account was already deleted)
+cleanup() {
+  local cleanup_jar
+  cleanup_jar=$(mktemp)
+  local json=(-s -o /dev/null -H "Origin: $ORIGIN" -H 'Content-Type: application/json')
+  curl "${json[@]}" -c "$cleanup_jar" -X POST --data "$creds" "$BASE_URL/api/auth/login" || true
+  curl "${json[@]}" -b "$cleanup_jar" -X DELETE --data '{"password":"smoke test password"}' \
+    "$BASE_URL/api/auth/account" || true
+  rm -f "$jar" "$cleanup_jar"
+}
+trap cleanup EXIT
 
 # api <method> <path> [json body] -> prints "<status> <body>", using the cookie jar
 api() {

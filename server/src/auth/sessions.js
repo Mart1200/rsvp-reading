@@ -30,10 +30,11 @@ export async function createSession(pool, userId, now = new Date()) {
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
 
-  await pool.query('DELETE FROM sessions WHERE user_id = $1 AND expires_at <= $2', [userId, now]);
+  // One round trip: drop the user's expired sessions and insert the new one
   await pool.query(
-    'INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)',
-    [hashToken(token), userId, expiresAt]
+    `WITH expired AS (DELETE FROM sessions WHERE user_id = $2 AND expires_at <= $4)
+     INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)`,
+    [hashToken(token), userId, expiresAt, now]
   );
   return { token, expiresAt };
 }
