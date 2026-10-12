@@ -1,11 +1,11 @@
 import { serve } from '@hono/node-server';
-import pg from 'pg';
+import { createPool } from './db.js';
 import { loadConfig } from './config.js';
 import { runMigrations } from './migrate.js';
 import { createApp } from './app.js';
 
 const config = loadConfig(process.env);
-const pool = new pg.Pool({ connectionString: config.databaseUrl });
+const pool = createPool(config);
 
 await runMigrations(pool);
 

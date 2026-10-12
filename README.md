@@ -68,10 +68,10 @@ npm run dev
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | – (required) | Postgres connection string |
+| `DATABASE_URL` | – | Postgres connection string. Alternatively set `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` (no URL encoding needed); one of both is required |
 | `PORT` | `3000` | API port |
-| `ORIGIN` | `http://localhost:5173` | Origin allowed to send mutating requests |
-| `COOKIE_SECURE` | `true` | Set to `false` when served over plain http |
+| `ORIGIN` | `http://localhost:5173` | Origin allowed to send mutating requests. Required when `NODE_ENV=production` (set in the Docker image) |
+| `COOKIE_SECURE` | `true` | Set to `false` only when served over plain http on a host other than `localhost` |
 | `STATIC_DIR` | – | Frontend build to serve (set in the Docker image; unset in development, where Vite serves the frontend) |
 
 Migrations are plain SQL files in `server/migrations/`, applied in filename order on startup (or with `npm run migrate`). Add a new file such as `002_add_something.sql` and never edit an applied one.
@@ -82,11 +82,11 @@ Run the app (one image with frontend + API) and Postgres using Docker Compose:
 
 ```bash
 cd docker
-cp .env.example .env   # optional: set POSTGRES_PASSWORD, ORIGIN, COOKIE_SECURE
+cp .env.example .env   # set POSTGRES_PASSWORD and ORIGIN for a real deployment
 docker compose up -d --build --wait
 ```
 
-The app will be available at http://localhost:8080. The image is built by `docker/Dockerfile`: it builds the frontend with Vite and the Node server serves it next to the API (SPA fallback, gzip, immutable caching for `/assets/*`). Postgres data is stored in the `pgdata` volume. For HTTPS, put a reverse proxy (e.g. Caddy or Traefik) in front and set `COOKIE_SECURE=true`.
+The app will be available at http://localhost:8080. The image is built by `docker/Dockerfile`: it builds the frontend with Vite and the Node server serves it next to the API (SPA fallback, gzip, immutable caching for `/assets/*`). Postgres data is stored in the `pgdata` volume. For HTTPS, put a reverse proxy (e.g. Caddy or Traefik) in front and set `ORIGIN` to the public URL.
 
 Check that the running stack works end to end:
 
@@ -245,7 +245,7 @@ npm run test:coverage
 
 ### Server tests
 
-Integration tests need the dev Postgres (`docker compose -f docker/docker-compose.dev.yml up -d`). They use the `rsvp_test` database (override with `TEST_DATABASE_URL`) and recreate its schema on every run.
+Integration tests need the dev Postgres (`docker compose -f docker/docker-compose.dev.yml up -d`). They use the `rsvp_test` database (override with `TEST_DATABASE_URL`, also read from `server/.env`) and recreate its schema on every run. As a safeguard, the tests refuse to run unless the database name ends in `_test`.
 
 ```bash
 cd server

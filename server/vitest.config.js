@@ -1,4 +1,10 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+// Load server/.env (e.g. TEST_DATABASE_URL). Variables already set, as in CI, win.
+const envFile = fileURLToPath(new URL('.env', import.meta.url));
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 export default defineConfig({
   test: {

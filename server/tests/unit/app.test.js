@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApp, MAX_BODY_BYTES } from '../../src/app.js';
+import { createApp, withTimeout, MAX_BODY_BYTES } from '../../src/app.js';
 import { HttpError } from '../../src/errors.js';
 import { request } from '../helpers/app.js';
 
@@ -24,6 +24,40 @@ describe('GET /api/health', () => {
     expect(res.body).toEqual({
       error: { code: 'DB_UNAVAILABLE', message: 'Database is not reachable' }
     });
+  });
+
+  it('returns 503 instead of hanging when the database does not answer', async () => {
+    const hangingPool = { query: vi.fn(() => new Promise(() => {})) };
+    const app = createApp({ pool: hangingPool, healthTimeoutMs: 20 });
+
+    const res = await request(app, 'GET', '/api/health');
+
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('DB_UNAVAILABLE');
+  });
+});
+
+describe('withTimeout', () => {
+  it('resolves with the value when the promise is fast enough', async () => {
+    await expect(withTimeout(Promise.resolve('ok'), 50)).resolves.toBe('ok');
+  });
+
+  it('passes through rejections', async () => {
+    await expect(withTimeout(Promise.reject(new Error('boom')), 50)).rejects.toThrow('boom');
+  });
+
+  it('rejects when the promise takes too long', async () => {
+    await expect(withTimeout(new Promise(() => {}), 10)).rejects.toThrow('Timed out after 10 ms');
+  });
+
+  it('clears its timer once settled', async () => {
+    vi.useFakeTimers();
+    try {
+      await withTimeout(Promise.resolve('ok'), 1000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

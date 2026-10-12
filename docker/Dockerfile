@@ -34,7 +34,8 @@ COPY --from=frontend /app/dist ./public
 USER node
 EXPOSE 3000
 
+# Shell form so an overridden PORT is picked up
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
-  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+  CMD wget -qO- "http://127.0.0.1:${PORT:-3000}/api/health" || exit 1
 
 CMD ["node", "src/index.js"]

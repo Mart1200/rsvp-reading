@@ -4,6 +4,26 @@ export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://rsvp:rsvp@localhost:5432/rsvp_test';
 
 /**
+ * Tests drop and recreate schemas, so refuse anything that isn't clearly a test database
+ * @param {string} url
+ */
+export function assertTestDatabaseUrl(url) {
+  let name;
+  try {
+    name = decodeURIComponent(new URL(url).pathname.slice(1));
+  } catch {
+    throw new Error(`TEST_DATABASE_URL is not a valid URL: "${url}"`);
+  }
+  if (!name.endsWith('_test')) {
+    throw new Error(
+      `Refusing to run tests against database "${name}": TEST_DATABASE_URL must point to a database ending in "_test"`
+    );
+  }
+}
+
+assertTestDatabaseUrl(TEST_DATABASE_URL);
+
+/**
  * Create a pool on the shared test database.
  * The schema is migrated once by tests/global-setup.js.
  * @returns {import('pg').Pool}

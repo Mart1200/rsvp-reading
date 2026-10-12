@@ -16,6 +16,8 @@ const MIGRATION_LOCK_ID = 872341;
  */
 export async function runMigrations(pool, { log = console.log, dir = MIGRATIONS_DIR } = {}) {
   const client = await pool.connect();
+  // Set when the connection itself failed; the client is then destroyed instead of reused
+  let clientError;
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
     await client.query(`
@@ -40,7 +42,12 @@ export async function runMigrations(pool, { log = console.log, dir = MIGRATIONS_
         await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
         await client.query('COMMIT');
       } catch (error) {
-        await client.query('ROLLBACK');
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          clientError = rollbackError;
+        }
+        // Always report the migration's own error, not a follow-up rollback failure
         throw new Error(`Migration ${file} failed: ${error.message}`, { cause: error });
       }
       ran.push(file);
@@ -48,7 +55,14 @@ export async function runMigrations(pool, { log = console.log, dir = MIGRATIONS_
     }
     return ran;
   } finally {
-    await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => {});
-    client.release();
+    if (!clientError) {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]);
+      } catch (unlockError) {
+        clientError = unlockError;
+      }
+    }
+    // Releasing with an error destroys the connection, which also frees the advisory lock
+    client.release(clientError);
   }
 }

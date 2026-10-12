@@ -6,10 +6,16 @@ services:
     ports:
       - "8080:3000"
     environment:
-      DATABASE_URL: postgres://rsvp:${POSTGRES_PASSWORD:-rsvp}@db:5432/rsvp
+      # Separate PG* variables (read natively by pg) so the password needs no URL encoding
+      PGHOST: db
+      PGUSER: rsvp
+      PGPASSWORD: ${POSTGRES_PASSWORD:-rsvp}
+      PGDATABASE: rsvp
+      # Public URL of the app; must match exactly for the CSRF origin check
       ORIGIN: ${ORIGIN:-http://localhost:8080}
-      # Set to true when served over https
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Secure by default. Browsers accept Secure cookies on http://localhost;
+      # set to false only for plain http on another host (e.g. a LAN IP)
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     depends_on:
       db:
         condition: service_healthy

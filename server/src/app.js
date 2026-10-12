@@ -5,15 +5,32 @@ import { HttpError, errorBody } from './errors.js';
 import { serveFrontend } from './static.js';
 
 export const MAX_BODY_BYTES = 20 * 1024 * 1024;
+export const HEALTH_TIMEOUT_MS = 2000;
+
+/**
+ * Reject if the promise does not settle in time
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @returns {Promise<T>}
+ */
+export function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Create the HTTP application
  * @param {Object} deps
  * @param {import('pg').Pool} deps.pool - Postgres connection pool
  * @param {string|null} [deps.staticDir] - Frontend build to serve; null serves the API only
+ * @param {number} [deps.healthTimeoutMs] - Max time the health check waits for the database
  * @returns {Hono}
  */
-export function createApp({ pool, staticDir = null }) {
+export function createApp({ pool, staticDir = null, healthTimeoutMs = HEALTH_TIMEOUT_MS }) {
   const app = new Hono();
 
   app.use('*', compress());
@@ -25,7 +42,7 @@ export function createApp({ pool, staticDir = null }) {
 
   app.get('/api/health', async (c) => {
     try {
-      await pool.query('SELECT 1');
+      await withTimeout(pool.query('SELECT 1'), healthTimeoutMs);
     } catch {
       throw new HttpError(503, 'DB_UNAVAILABLE', 'Database is not reachable');
     }

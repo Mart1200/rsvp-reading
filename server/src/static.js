@@ -41,12 +41,13 @@ export function serveFrontend(app, staticDir) {
     const path = c.req.path;
     if (isApiPath(path)) return next();
 
-    const fallback = HAS_EXTENSION.test(path) ? next : () => indexHtml(c, next);
+    const hasExtension = HAS_EXTENSION.test(path);
+    const fallback = hasExtension ? next : () => indexHtml(c, next);
     const res = await files(c, fallback);
     // When nothing matched, next() ran the remaining handlers and returns no Response
     if (res instanceof Response) {
       // index.html served as SPA fallback must also revalidate
-      res.headers.set('Cache-Control', HAS_EXTENSION.test(path) ? cacheControlFor(path) : 'no-cache');
+      res.headers.set('Cache-Control', hasExtension ? cacheControlFor(path) : 'no-cache');
     }
     return res;
   });
