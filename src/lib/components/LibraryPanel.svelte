@@ -3,7 +3,7 @@
   import Modal from './Modal.svelte';
   import {
     listTexts, getText, renameText, deleteText, saveProgress,
-    formatRelativeTime, formatWordCount, TITLE_MAX_LENGTH
+    formatRelativeTime, formatWordProgress, TITLE_MAX_LENGTH
   } from '../library.js';
 
   /** ID of the library text currently open in the reader */
@@ -174,7 +174,7 @@
               {#if text.id === currentTextId}<span class="badge">Open</span>{/if}
             </button>
             <div class="meta">
-              {formatWordCount(text.totalWords)} · {text.progressPercent}% · {formatRelativeTime(text.lastReadAt)}
+              {formatWordProgress(text.currentWordIndex, text.totalWords)} · {text.progressPercent}% · {formatRelativeTime(text.lastReadAt)}
             </div>
             <div
               class="bar"

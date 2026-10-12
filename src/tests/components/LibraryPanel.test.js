@@ -30,9 +30,9 @@ describe('LibraryPanel', () => {
     renderPanel();
 
     const mobyRow = (await screen.findByText('Moby Dick')).closest('li');
-    expect(mobyRow).toHaveTextContent('1,200 words · 50% · 2 days ago');
+    expect(mobyRow).toHaveTextContent('600 / 1,200 words · 50% · 2 days ago');
     expect(within(mobyRow).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
-    expect(row('Short essay')).toHaveTextContent('300 words · 0% · Never');
+    expect(row('Short essay')).toHaveTextContent('0 / 300 words · 0% · Never');
   });
 
   it('shows a loading state first', () => {
@@ -173,7 +173,7 @@ describe('LibraryPanel', () => {
 
       await vi.waitFor(() => expect(events.reset).toHaveBeenCalled());
       expect(server.calls('PUT /api/texts/t1/progress')[0].body).toEqual({ currentWordIndex: 0 });
-      expect(row('Moby Dick')).toHaveTextContent('· 0% ·');
+      expect(row('Moby Dick')).toHaveTextContent('0 / 1,200 words · 0% ·');
     });
 
     it('is disabled for texts at the beginning', async () => {

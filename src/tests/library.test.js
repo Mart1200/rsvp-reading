@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   listTexts, getText, saveText, renameText, deleteText, saveProgress,
-  defaultTitle, formatRelativeTime, formatWordCount
+  defaultTitle, formatRelativeTime, formatWordCount, formatWordProgress
 } from '../lib/library.js';
 import { mockFetch, apiError } from './helpers/fetch-mock.js';
 
@@ -108,6 +108,17 @@ describe('formatRelativeTime', () => {
     [ago(400 * 24 * 3600), 'Last year']
   ])('%s -> %s', (date, expected) => {
     expect(formatRelativeTime(date, now)).toBe(expected);
+  });
+});
+
+describe('formatWordProgress', () => {
+  it.each([
+    [0, 300, '0 / 300 words'],
+    [600, 1200, '600 / 1,200 words'],
+    [12345, 98765, '12,345 / 98,765 words'],
+    [1, 1, '1 / 1 word']
+  ])('%i of %i -> %s', (read, total, expected) => {
+    expect(formatWordProgress(read, total)).toBe(expected);
   });
 });
 

@@ -134,3 +134,13 @@ export function formatRelativeTime(date, now = new Date()) {
 export function formatWordCount(count) {
   return `${count.toLocaleString('en')} ${count === 1 ? 'word' : 'words'}`;
 }
+
+/**
+ * Read / total words, e.g. "600 / 1,200 words"
+ * @param {number} read - Current word index
+ * @param {number} total - Total words
+ * @returns {string}
+ */
+export function formatWordProgress(read, total) {
+  return `${read.toLocaleString('en')} / ${formatWordCount(total)}`;
+}

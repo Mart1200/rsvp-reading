@@ -186,7 +186,7 @@ Click **Sign in** in the header to register or log in. The account menu (your us
 When signed in, two extra buttons appear in the header:
 
 - **Save to library** (bookmark icon): stores the loaded text with its chapters and your current position in your account. The title is suggested from the EPUB book title, the file name or the first words of pasted text, and can be edited. The button is hidden for texts that are already in the library.
-- **Library** (books icon, also in the account menu): lists your texts with word count, progress and when you last read them. Click a title to continue reading at the saved position. Each entry can be renamed, reset to the beginning or deleted (both with confirmation).
+- **Library** (books icon, also in the account menu): lists your texts with words read / total (e.g. `600 / 1,200 words`), progress in percent and when you last read them. Click a title to continue reading at the saved position. Each entry can be renamed, reset to the beginning or deleted (both with confirmation).
 
 The title of an open library text is shown next to the app name. For library texts, the save button and `Ctrl+S` store the position in your account instead of the browser. Texts that are not in the library keep working exactly like before. Signing out closes an open library text.
 
