@@ -161,6 +161,8 @@ npm run preview
 - **Play**: Start reading from the beginning or current position
 - **Pause**: Pause reading (UI enters focus mode with minimal controls)
 - **Exit** (top right, only in focus mode): Leave focus mode and keep the position, same as `Esc`
+
+When paused or not reading, the text around the current word is shown so you can see where you are (Settings → *Show context when paused or not reading*).
 - **Resume**: Continue from where you paused
 - **Stop**: Stop and go back to your last saved position (library or browser), or to the beginning if nothing is saved
 - **Restart**: Start from the beginning. If progress is saved, you are asked first; the saved position is only replaced the next time you save

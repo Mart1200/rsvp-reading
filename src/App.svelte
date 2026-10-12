@@ -86,8 +86,11 @@
   $: activeIndex = Math.max(0, currentWordIndex - 1);
   $: currentWord = words[activeIndex] || (words.length > 0 ? words[0] : '');
   $: wordFrame = extractWordFrame(words, activeIndex, frameWordCount);
-  $: contextBefore = isPaused ? words.slice(Math.max(0, activeIndex - 60), activeIndex) : [];
-  $: contextAfter = isPaused ? words.slice(activeIndex + 1, Math.min(words.length, activeIndex + 61)) : [];
+  // Surrounding text: shown on a manual pause and whenever not reading (after Exit/Esc,
+  // Stop, opening a text or jumping), so you can see where you are
+  $: showSurroundingText = showContextEnabled && words.length > 0 && (isManualPause || !isFocusMode);
+  $: contextBefore = showSurroundingText ? words.slice(Math.max(0, activeIndex - 60), activeIndex) : [];
+  $: contextAfter = showSurroundingText ? words.slice(activeIndex + 1, Math.min(words.length, activeIndex + 61)) : [];
   $: timeRemaining = formatTimeRemaining(words.length - currentWordIndex, wordsPerMinute);
   $: isFocusMode = isPlaying || isPaused;
   $: currentChapterIndex = findChapterIndex(chapters, currentWordIndex);
@@ -796,7 +799,7 @@
       {fadeDuration}
       {fadeEnabled}
       multiWordEnabled={frameWordCount > 1}
-      showContext={isManualPause && showContextEnabled}
+      showContext={showSurroundingText}
       {contextBefore}
       {contextAfter}
     />
