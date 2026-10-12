@@ -1,0 +1,26 @@
+{
+  "name": "rsvp-server",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "hono": "^4.13.13",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}

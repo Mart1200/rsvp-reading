@@ -1,0 +1,24 @@
+# Postgres for local development and server tests:
+#   docker compose -f docker/docker-compose.dev.yml up -d
+name: rsvp-dev
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rsvp
+      POSTGRES_PASSWORD: rsvp
+      POSTGRES_DB: rsvp
+    ports:
+      - "${DEV_DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./dev-db-init.sql:/docker-entrypoint-initdb.d/dev-db-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsvp -d rsvp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

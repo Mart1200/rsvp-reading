@@ -1,8 +1,40 @@
 services:
-  rsvp:
+  app:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
-      - "8080:80"
+      - "8080:3000"
+    environment:
+      # Separate PG* variables (read natively by pg) so the password needs no URL encoding
+      PGHOST: db
+      PGUSER: rsvp
+      PGPASSWORD: ${POSTGRES_PASSWORD:-rsvp}
+      PGDATABASE: rsvp
+      # Public URL of the app; must match exactly for the CSRF origin check
+      ORIGIN: ${ORIGIN:-http://localhost:8080}
+      # Secure by default. Browsers accept Secure cookies on http://localhost;
+      # set to false only for plain http on another host (e.g. a LAN IP)
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rsvp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rsvp}
+      POSTGRES_DB: rsvp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsvp -d rsvp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -50,21 +50,48 @@ npm install
 npm run dev
 ```
 
+### Backend (API + Postgres)
+
+The frontend works on its own. The API in `server/` (Node, [Hono](https://hono.dev), Postgres) is needed for account features. The Vite dev server proxies `/api` to it (`http://localhost:3000`, override with `API_URL`).
+
+```bash
+# Start Postgres for development and tests (creates databases rsvp and rsvp_test)
+docker compose -f docker/docker-compose.dev.yml up -d
+
+cd server
+npm install
+cp .env.example .env
+
+# Start the API with auto-reload (applies pending migrations on start)
+npm run dev
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | – | Postgres connection string. Alternatively set `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` (no URL encoding needed); one of both is required |
+| `PORT` | `3000` | API port |
+| `ORIGIN` | `http://localhost:5173` | Origin allowed to send mutating requests. Required when `NODE_ENV=production` (set in the Docker image) |
+| `COOKIE_SECURE` | `true` | Set to `false` only when served over plain http on a host other than `localhost` |
+| `STATIC_DIR` | – | Frontend build to serve (set in the Docker image; unset in development, where Vite serves the frontend) |
+
+Migrations are plain SQL files in `server/migrations/`, applied in filename order on startup (or with `npm run migrate`). Add a new file such as `002_add_something.sql` and never edit an applied one.
+
 ## Docker
 
-Run the app using Docker Compose:
+Run the app (one image with frontend + API) and Postgres using Docker Compose:
 
 ```bash
 cd docker
-docker compose up -d
+cp .env.example .env   # set POSTGRES_PASSWORD and ORIGIN for a real deployment
+docker compose up -d --build --wait
 ```
 
-The app will be available at http://localhost:8080
+The app will be available at http://localhost:8080. The image is built by `docker/Dockerfile`: it builds the frontend with Vite and the Node server serves it next to the API (SPA fallback, gzip, immutable caching for `/assets/*`). Postgres data is stored in the `pgdata` volume. For HTTPS, put a reverse proxy (e.g. Caddy or Traefik) in front and set `ORIGIN` to the public URL.
 
-To rebuild after changes:
+Check that the running stack works end to end:
 
 ```bash
-docker compose up -d --build
+bash docker/smoke-test.sh
 ```
 
 ## Usage
@@ -177,6 +204,26 @@ rsvp/
 │       ├── rsvp-utils.test.js       # RSVP utility tests
 │       ├── file-parsers.test.js     # File parser tests
 │       └── progress-storage.test.js # Progress storage tests
+├── server/                     # Backend API (separate npm package)
+│   ├── src/
+│   │   ├── index.js            # Entry point: migrate, then serve
+│   │   ├── app.js              # Hono app: routes, body limit, error handling
+│   │   ├── static.js           # Serves the built frontend (SPA fallback, caching)
+│   │   ├── config.js           # Environment configuration
+│   │   ├── errors.js           # HttpError + uniform error body
+│   │   └── migrate.js          # SQL migration runner
+│   ├── migrations/             # Numbered .sql migrations
+│   ├── scripts/                # CLI scripts (npm run migrate)
+│   └── tests/
+│       ├── unit/               # No database needed
+│       ├── integration/        # Run against Postgres
+│       ├── helpers/            # setupTestApp, request, fixtures, db utils
+│       └── fixtures/           # Test data (e.g. sample migrations)
+├── docker/
+│   ├── Dockerfile              # Single image: frontend build + API
+│   ├── docker-compose.yml      # app + db
+│   ├── docker-compose.dev.yml  # Postgres for development/tests
+│   └── smoke-test.sh           # End-to-end check of the running stack
 ├── index.html
 ├── package.json
 ├── vite.config.js
@@ -194,6 +241,34 @@ npm run test:run
 
 # Run tests with coverage
 npm run test:coverage
+```
+
+### Server tests
+
+Integration tests need the dev Postgres (`docker compose -f docker/docker-compose.dev.yml up -d`). They use the `rsvp_test` database (override with `TEST_DATABASE_URL`, also read from `server/.env`) and recreate its schema on every run. As a safeguard, the tests refuse to run unless the database name ends in `_test`.
+
+```bash
+cd server
+npm run test:run          # all tests
+npm run test:unit         # no database needed
+npm run test:integration  # against Postgres
+```
+
+Writing new API tests:
+
+```js
+import { setupTestApp } from '../helpers/app.js';
+import { createUser, createText } from '../helpers/fixtures.js';
+
+const ctx = setupTestApp(); // app + pool on the test DB, tables truncated after each test
+
+it('returns the text', async () => {
+  const user = await createUser(ctx.pool);
+  const text = await createText(ctx.pool, user.id, { title: 'Book' });
+
+  const res = await ctx.request('GET', `/api/texts/${text.id}`);
+  expect(res.status).toBe(200);
+});
 ```
 
 ## API Reference
