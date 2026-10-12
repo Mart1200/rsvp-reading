@@ -1,8 +1,34 @@
 services:
-  rsvp:
+  app:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
-      - "8080:80"
+      - "8080:3000"
+    environment:
+      DATABASE_URL: postgres://rsvp:${POSTGRES_PASSWORD:-rsvp}@db:5432/rsvp
+      ORIGIN: ${ORIGIN:-http://localhost:8080}
+      # Set to true when served over https
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rsvp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rsvp}
+      POSTGRES_DB: rsvp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsvp -d rsvp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

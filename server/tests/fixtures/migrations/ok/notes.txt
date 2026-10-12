@@ -1,0 +1,1 @@
+Non-.sql files are ignored by the migration runner.

@@ -115,19 +115,3 @@ jobs:
           prerelease: ${{ contains(github.ref, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # DigitalOcean App Platform auto-deploys from GitHub
-  # This job just notifies/verifies the deployment
-  notify-deploy:
-    name: Notify Deployment
-    needs: [build, release]
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Deployment notification
-        run: |
-          echo "🚀 Release v${{ needs.build.outputs.version }} created!"
-          echo ""
-          echo "DigitalOcean App Platform will automatically deploy from the main branch."
-          echo ""
-          echo "View your app at: https://rsvp.n0name.eu"
