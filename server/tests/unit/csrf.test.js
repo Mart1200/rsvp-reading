@@ -65,6 +65,15 @@ describe('CSRF protection', () => {
       expect(res.status).toBe(401);
     });
 
+    it('lets text/plain through for POST settings (reaches the auth check)', async () => {
+      const res = await request(app, 'POST', '/api/auth/settings', {
+        body: '{"settings":{}}',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+      });
+
+      expect(res.status).toBe(401);
+    });
+
     it('still requires the origin', async () => {
       const res = await request(app, 'POST', progressPath, {
         body: '{"currentWordIndex":1}',
@@ -76,7 +85,8 @@ describe('CSRF protection', () => {
 
     it.each([
       ['PUT on the same path', 'PUT', progressPath],
-      ['POST on another path', 'POST', '/api/texts']
+      ['POST on another path', 'POST', '/api/texts'],
+      ['PUT settings', 'PUT', '/api/auth/settings']
     ])('rejects text/plain for %s', async (_, method, path) => {
       const res = await request(app, method, path, {
         body: '{}',

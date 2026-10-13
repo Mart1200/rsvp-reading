@@ -194,12 +194,12 @@ The title of an open library text is shown next to the app name. Texts that are 
 
 **Automatic sync:** the position of a library text is saved to your account automatically, so you can continue on any device:
 - every 10 seconds while reading (only if it changed),
-- right away when you pause, leave reading mode (`Esc` / Exit), jump (search, chapter, progress bar, jump dialog) or load another text,
+- right away when you pause, leave reading mode (`Esc` / Exit), jump (search, chapter, progress bar, jump dialog), open the library, load another text or sign out,
 - when the tab is hidden or closed.
 
-Each save becomes the position **Stop** returns to. Stop itself and a confirmed **Restart** save nothing; after a restart the old progress is replaced once you read on. The save button and `Ctrl+S` still save immediately. Failed saves are retried silently with the next one; when you open a library text, the position stored in your account wins.
+Each save becomes the position **Stop** returns to. Stop itself and a confirmed **Restart** save nothing; after a restart the old progress is replaced once you read on. The save button and `Ctrl+S` still save immediately and briefly show whether it worked. Failed saves are retried silently with the next one; when you open a library text, the position stored in your account wins.
 
-**Settings** (speed, fade, pauses, …) belong to your account while you are signed in and are saved a second after you change them. On first sign-in your current settings are uploaded. After signing out, the settings you had as a guest apply again; the browser session keeps the guest settings.
+**Settings** (speed, fade, pauses, …) belong to your account while you are signed in and are saved a second after you change them (right away when you sign out or hide the page; failed uploads are retried after 5 s, 15 s, then every minute). On first sign-in your current settings are uploaded. After signing out, the settings you had as a guest apply again; the browser session keeps the guest settings.
 
 ### Saving and Resuming Progress
 
@@ -273,6 +273,7 @@ rsvp/
 │       ├── rsvp-utils.test.js       # RSVP utility tests
 │       ├── file-parsers.test.js     # File parser tests
 │       └── progress-storage.test.js # Progress storage tests
+├── shared/settings.js          # Reader settings accepted by the API (used by frontend and server)
 ├── server/                     # Backend API (separate npm package)
 │   ├── src/
 │   │   ├── index.js            # Entry point: migrate, then serve

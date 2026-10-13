@@ -6,7 +6,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * POST routes that also accept a text/plain body, because navigator.sendBeacon cannot send
  * JSON as a simple request. The Origin check still applies; the body must still be JSON.
  */
-export const BEACON_PATHS = [/^\/api\/texts\/[^/]+\/progress$/];
+export const BEACON_PATHS = [/^\/api\/texts\/[^/]+\/progress$/, /^\/api\/auth\/settings$/];
 
 /**
  * CSRF protection for mutating requests:

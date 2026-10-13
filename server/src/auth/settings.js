@@ -1,21 +1,7 @@
 import { HttpError } from '../errors.js';
+import { isKnownSetting, isValidSetting } from '../../../shared/settings.js';
 
-/** Reader settings an account may store, with their type (see the settings in src/App.svelte) */
-export const SETTING_TYPES = {
-  wordsPerMinute: 'number',
-  fadeEnabled: 'boolean',
-  fadeDuration: 'number',
-  pauseOnPunctuation: 'boolean',
-  punctuationPauseMultiplier: 'number',
-  wordLengthWPMMultiplier: 'number',
-  pauseAfterWords: 'number',
-  pauseDuration: 'number',
-  frameWordCount: 'number',
-  showContextEnabled: 'boolean'
-};
-
-// Generous upper bound for every number; the UI uses far smaller ranges
-const MAX_NUMBER = 100_000;
+export { SETTING_TYPES } from '../../../shared/settings.js';
 
 /**
  * Validate settings sent by the client. Every key is optional, unknown keys are rejected.
@@ -27,13 +13,8 @@ export function parseSettings(settings) {
     throw new HttpError(400, 'VALIDATION', 'settings must be an object');
   }
   for (const [key, value] of Object.entries(settings)) {
-    const type = Object.hasOwn(SETTING_TYPES, key) ? SETTING_TYPES[key] : null;
-    if (!type) throw new HttpError(400, 'VALIDATION', `Unknown setting: ${key.slice(0, 64)}`);
-
-    const valid = type === 'number'
-      ? Number.isFinite(value) && value >= 0 && value <= MAX_NUMBER
-      : typeof value === type;
-    if (!valid) throw new HttpError(400, 'VALIDATION', `Invalid value for ${key}`);
+    if (!isKnownSetting(key)) throw new HttpError(400, 'VALIDATION', `Unknown setting: ${key.slice(0, 64)}`);
+    if (!isValidSetting(key, value)) throw new HttpError(400, 'VALIDATION', `Invalid value for ${key}`);
   }
   return settings;
 }

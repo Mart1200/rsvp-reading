@@ -76,9 +76,9 @@ describe('createProgressSync', () => {
 
     sync.update(1);
     const first = sync.flush();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     sync.update(2);
     const second = sync.flush();
-    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     release();
     await first;
     await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
@@ -86,6 +86,18 @@ describe('createProgressSync', () => {
     await second;
 
     expect(order).toEqual(['start 1', 'end 1', 'start 2', 'end 2']);
+  });
+
+  it('sends the newest position when a queued request gets its turn', async () => {
+    const { sync, save } = setup();
+    sync.link('t1', 0);
+    sync.update(3);
+
+    const pending = sync.flush();
+    sync.update(8);
+    await pending;
+
+    expect(save).toHaveBeenCalledExactlyOnceWith('t1', 8);
   });
 
   it('skips a queued request that an earlier one already covered', async () => {
@@ -156,6 +168,68 @@ describe('createProgressSync', () => {
       sync.flushWithBeacon();
 
       expect(sync.dirty).toBe(true);
+    });
+  });
+
+  describe('requests in flight (review findings)', () => {
+    // A save() whose requests finish only when released, in order
+    function controlledSave() {
+      const releases = [];
+      const save = vi.fn(() => new Promise((resolve) => releases.push(resolve)));
+      return { save, release: () => releases.shift()() };
+    }
+
+    it('a save finishing after discard() changes nothing (Stop stays put, nothing to resend)', async () => {
+      const { save, release } = controlledSave();
+      const { sync, onSynced } = setup({ save });
+      sync.link('t1', 300);
+      sync.update(400);
+      const pending = sync.flush();
+      await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+      sync.discard();
+      release();
+
+      expect(await pending).toBe(false);
+      expect(onSynced).not.toHaveBeenCalled();
+      expect(sync.dirty).toBe(false);
+    });
+
+    it('a save finishing after a beacon does not roll back, and the beacon position is sent again', async () => {
+      const { save, release } = controlledSave();
+      const { sync, beacon, onSynced } = setup({ save });
+      sync.link('t1', 0);
+      sync.update(500);
+      sync.flush();
+      await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+      sync.update(520);
+      sync.flushWithBeacon();
+      release();
+
+      // The older PUT may have reached the server last: 520 goes out again
+      await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+      expect(save).toHaveBeenLastCalledWith('t1', 520);
+      release();
+      await vi.waitFor(() => expect(onSynced).toHaveBeenLastCalledWith('t1', 520));
+      expect(beacon).toHaveBeenCalledWith('t1', 520);
+      expect(onSynced).not.toHaveBeenCalledWith('t1', 500);
+      expect(sync.dirty).toBe(false);
+    });
+
+    it('a save finishing after re-linking the same text does not mark it dirty', async () => {
+      const { save, release } = controlledSave();
+      const { sync } = setup({ save });
+      sync.link('t1', 100);
+      sync.update(180);
+      const pending = sync.flush();
+      await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+      sync.link('t1', 180);
+      release();
+      await pending;
+
+      expect(sync.dirty).toBe(false);
     });
   });
 

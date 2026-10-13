@@ -250,6 +250,19 @@ describe('PUT /api/auth/settings', () => {
 
     expect(res.status).toBe(401);
   });
+
+  it('also accepts a sendBeacon POST with a text/plain body', async () => {
+    const { cookie } = await ctx.loggedInUser();
+
+    const res = await ctx.request('POST', '/api/auth/settings', {
+      body: JSON.stringify({ settings: { wordsPerMinute: 525 } }),
+      cookie,
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+    });
+
+    expect(res.status).toBe(204);
+    expect((await me(cookie)).body.user.settings).toEqual({ wordsPerMinute: 525 });
+  });
 });
 
 describe('POST /api/auth/password', () => {

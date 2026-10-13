@@ -205,6 +205,90 @@ describe('Progress sync of library texts', () => {
   });
 });
 
+describe('Review findings', () => {
+  // Server that remembers the stored position like the real one
+  function statefulServer(routes = {}) {
+    let stored = book.currentWordIndex;
+    const order = [];
+    const srv = server({
+      routes: {
+        'GET /api/texts/t1': () => { order.push('GET'); return { body: { text: { ...book, currentWordIndex: stored } } }; },
+        [PROGRESS]: (req) => { order.push(`PUT ${req.body.currentWordIndex}`); stored = req.body.currentWordIndex; return { status: 204 }; },
+        'PUT /api/auth/settings': () => { order.push('PUT settings'); return { status: 204 }; },
+        'POST /api/auth/logout': () => { order.push('logout'); return { status: 204 }; },
+        ...routes
+      }
+    });
+    return { srv, order };
+  }
+
+  it('re-opening the open text from the library keeps unsaved steps', async () => {
+    const { srv, order } = statefulServer();
+    render(App);
+    await openBook();
+    await press('ArrowRight');
+    await press('ArrowRight');
+
+    await openBook();
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    window.dispatchEvent(new Event('pagehide'));
+
+    // Saved before the text was fetched again, so the server position is the current one
+    expect(order.indexOf('PUT 52')).toBeLessThan(order.lastIndexOf('GET'));
+    expect(shownPosition()).toBe(52);
+    expect(positions(srv)).toEqual([52]);
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it('signing out saves progress and settings first', async () => {
+    const { order } = statefulServer();
+    render(App);
+    await openBook();
+    order.length = 0;
+    await press('ArrowRight');
+    await press('ArrowUp');
+
+    await fireEvent.click(screen.getByRole('button', { name: /alice/ }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
+
+    await vi.waitFor(() => expect(order).toContain('logout'));
+    expect(order.slice(0, 2).sort()).toEqual(['PUT 51', 'PUT settings']);
+    expect(order[2]).toBe('logout');
+  });
+
+  it('hiding the page sends pending settings with a beacon', async () => {
+    server({ settings: { wordsPerMinute: 300 } });
+    render(App);
+    await screen.findByRole('button', { name: 'Library' });
+    await press('ArrowUp');
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(sendBeacon).toHaveBeenCalledWith('/api/auth/settings', expect.stringContaining('"wordsPerMinute":325'));
+  });
+
+  it('a failed manual save says so', async () => {
+    server({ routes: { [PROGRESS]: { status: 500, body: apiError('INTERNAL_ERROR') } } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(App);
+    await openBook();
+
+    await press('KeyS', { ctrlKey: true });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Could not save progress');
+  });
+
+  it('a successful manual save says so', async () => {
+    server();
+    render(App);
+    await openBook();
+
+    await press('KeyS', { ctrlKey: true });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Progress saved');
+  });
+});
+
 describe('Settings sync', () => {
   const wpm = () => Number(document.querySelector('.stat.wpm').textContent.match(/\d+/)[0]);
 

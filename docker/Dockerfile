@@ -9,6 +9,7 @@ RUN npm ci
 COPY index.html vite.config.js svelte.config.js jsconfig.json ./
 COPY public ./public
 COPY src ./src
+COPY shared ./shared
 RUN npm run build
 
 # Server production dependencies
@@ -29,6 +30,8 @@ COPY server/package.json ./
 COPY server/src ./src
 COPY server/scripts ./scripts
 COPY server/migrations ./migrations
+# Imported by the server as ../../../shared (repo layout: server/src → shared)
+COPY shared /shared
 COPY --from=frontend /app/dist ./public
 
 USER node

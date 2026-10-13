@@ -8,6 +8,8 @@
 
   /** ID of the library text currently open in the reader */
   export let currentTextId = null;
+  /** Runs before texts are fetched, e.g. to save the open text's position first */
+  export let beforeFetch = async () => {};
 
   const dispatch = createEventDispatcher();
 
@@ -30,6 +32,7 @@
     loading = true;
     loadError = '';
     try {
+      await beforeFetch();
       texts = await listTexts();
     } catch (error) {
       loadError = error.message;
@@ -60,6 +63,7 @@
     resetRowState();
     busyId = id;
     try {
+      await beforeFetch();
       dispatch('open', await getText(id));
     } catch (error) {
       handleRowError(id, error);
