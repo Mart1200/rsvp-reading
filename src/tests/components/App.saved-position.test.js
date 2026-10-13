@@ -86,8 +86,10 @@ describe('Stop', () => {
     await press('Escape');
     const savedAt = shownPosition();
     expect(savedAt).toBeGreaterThan(50);
+    // Esc already saved; Ctrl+S saves again even though nothing changed
     await press('KeyS', { ctrlKey: true });
-    await vi.waitFor(() => expect(server.calls('PUT /api/texts/t1/progress')).toHaveLength(1));
+    await vi.waitFor(() => expect(server.calls('PUT /api/texts/t1/progress')).toHaveLength(2));
+    expect(server.calls('PUT /api/texts/t1/progress')[1].body).toEqual({ currentWordIndex: savedAt });
 
     await readFor(1500);
     await fireEvent.click(stopButton());
@@ -164,14 +166,28 @@ describe('Restart', () => {
     await fireEvent.click(restartButton());
     await fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
     await vi.advanceTimersByTimeAsync(300);
-    await press('Escape');
 
-    expect(shownPosition()).toBeLessThan(50);
     expect(server.calls('PUT /api/texts/t1/progress')).toHaveLength(0);
 
     // The saved position is still the way back
     await fireEvent.click(stopButton());
     expect(shownPosition()).toBe(50);
+    expect(server.calls('PUT /api/texts/t1/progress')).toHaveLength(0);
+  });
+
+  it('replaces the saved progress once reading continues after a restart', async () => {
+    const server = libraryServer();
+    render(App);
+    await openBook();
+
+    await fireEvent.click(restartButton());
+    await fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    await vi.advanceTimersByTimeAsync(1500);
+    await press('Space');
+
+    await vi.waitFor(() => expect(server.calls('PUT /api/texts/t1/progress')).toHaveLength(1));
+    const [{ body }] = server.calls('PUT /api/texts/t1/progress');
+    expect(body.currentWordIndex).toBeLessThan(50);
   });
 
   it('does not ask after the progress was reset in the library', async () => {

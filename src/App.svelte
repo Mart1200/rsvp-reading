@@ -25,8 +25,10 @@
   import LibraryPanel from './lib/components/LibraryPanel.svelte';
   import SaveToLibraryModal from './lib/components/SaveToLibraryModal.svelte';
   import Modal from './lib/components/Modal.svelte';
-  import { auth, initAuth } from './lib/auth.js';
-  import { saveProgress, defaultTitle } from './lib/library.js';
+  import { auth, initAuth, saveSettings } from './lib/auth.js';
+  import { saveProgress, sendProgressBeacon, defaultTitle } from './lib/library.js';
+  import { createProgressSync } from './lib/progress-sync.js';
+  import { createSettingsSync, pickSettings } from './lib/settings-sync.js';
   import { extractWordFrame } from './lib/rsvp-utils.js';
 
   // State
@@ -66,6 +68,16 @@
   let savedPosition = null;
   let showRestartConfirm = false;
 
+  // Positions of library texts are saved automatically (while playing, on pause, jumps,
+  // and when leaving the text or the page); each save becomes the new saved position
+  const progressSync = createProgressSync({
+    save: saveProgress,
+    beacon: sendProgressBeacon,
+    onSynced: (id, position) => {
+      if (libraryText?.id === id) savedPosition = position;
+    }
+  });
+
   // Settings
   let wordsPerMinute = 300;
   let fadeEnabled = true;
@@ -76,6 +88,79 @@
   let punctuationPauseMultiplier = 2;
   let wordLengthWPMMultiplier = 5;
   let showContextEnabled = true;
+
+  function getSettings() {
+    return {
+      wordsPerMinute,
+      fadeEnabled,
+      fadeDuration,
+      pauseOnPunctuation,
+      punctuationPauseMultiplier,
+      wordLengthWPMMultiplier,
+      pauseAfterWords,
+      pauseDuration,
+      frameWordCount,
+      showContextEnabled
+    };
+  }
+
+  function applySettings(settings) {
+    wordsPerMinute = settings.wordsPerMinute ?? wordsPerMinute;
+    fadeEnabled = settings.fadeEnabled ?? fadeEnabled;
+    fadeDuration = settings.fadeDuration ?? fadeDuration;
+    pauseOnPunctuation = settings.pauseOnPunctuation ?? pauseOnPunctuation;
+    punctuationPauseMultiplier = settings.punctuationPauseMultiplier ?? punctuationPauseMultiplier;
+    wordLengthWPMMultiplier = settings.wordLengthWPMMultiplier ?? wordLengthWPMMultiplier;
+    pauseAfterWords = settings.pauseAfterWords ?? pauseAfterWords;
+    pauseDuration = settings.pauseDuration ?? pauseDuration;
+    frameWordCount = settings.frameWordCount ?? frameWordCount;
+    showContextEnabled = settings.showContextEnabled ?? showContextEnabled;
+  }
+
+  // Signed in, the settings belong to the account. The guest settings (the ones in use
+  // before signing in, also stored with the browser session) come back after signing out.
+  const settingsSync = createSettingsSync({ save: saveSettings });
+  /** @type {Object|null} */
+  let guestSettings = null;
+  /** @type {string|null} */
+  let settingsUserId = null;
+
+  function handleAuthState(state) {
+    const userId = state.status === 'user' ? state.user.id : null;
+    if (userId === settingsUserId) return;
+
+    if (settingsUserId === null) guestSettings = getSettings();
+    settingsSync.cancel();
+    settingsUserId = userId;
+
+    if (userId === null) {
+      applySettings(guestSettings);
+      guestSettings = null;
+      return;
+    }
+    const stored = pickSettings(state.user.settings);
+    if (Object.keys(stored).length > 0) {
+      applySettings(stored);
+      settingsSync.reset(getSettings());
+    } else {
+      settingsSync.saveNow(getSettings());
+    }
+  }
+
+  $: handleAuthState($auth);
+  $: currentSettings = {
+    wordsPerMinute,
+    fadeEnabled,
+    fadeDuration,
+    pauseOnPunctuation,
+    punctuationPauseMultiplier,
+    wordLengthWPMMultiplier,
+    pauseAfterWords,
+    pauseDuration,
+    frameWordCount,
+    showContextEnabled
+  };
+  $: if ($auth.status === 'user') settingsSync.changed(currentSettings);
 
   // Animation
   let wordOpacity = 1;
@@ -112,6 +197,8 @@
 
   function showNextWord() {
     if (currentWordIndex >= words.length) {
+      // Finished: save the end, before stop() resets the display to the start
+      progressSync.flush();
       stop();
       return;
     }
@@ -125,6 +212,7 @@
 
     progress = ((currentWordIndex + 1) / words.length) * 100;
     currentWordIndex++;
+    progressSync.update(currentWordIndex);
 
     if (shouldPauseAtWord(currentWordIndex, pauseAfterWords)) {
       isPaused = true;
@@ -165,6 +253,7 @@
       clearTimeout(intervalId);
       intervalId = null;
     }
+    progressSync.flush();
   }
 
   function resume() {
@@ -198,6 +287,8 @@
   // so stopping by accident never loses progress
   function stopToSavedPosition() {
     stop();
+    // Not a jump: the saved position is what the server already has
+    progressSync.discard();
     if (savedPosition !== null) {
       currentWordIndex = Math.min(savedPosition, words.length);
       progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
@@ -217,7 +308,7 @@
 
   function handleTextApply(event) {
     text = event.detail.text;
-    libraryText = null;
+    leaveLibraryText();
     textSource = {};
     stop();
     parseText();
@@ -234,7 +325,7 @@
     try {
       const doc = await parseDocument(file);
       text = doc.text;
-      libraryText = null;
+      leaveLibraryText();
       textSource = { fileName: file.name, title: doc.title };
       stop();
       parseText(doc.chapters);
@@ -254,11 +345,8 @@
     // Library texts keep their position on the server, everything else in the browser
     const position = currentWordIndex;
     if (libraryText) {
-      saveProgress(libraryText.id, position)
-        .then(() => { savedPosition = position; })
-        .catch((error) => {
-          console.error('Failed to save progress:', error);
-        });
+      progressSync.update(position);
+      progressSync.flush({ force: true });
       return true;
     }
     const saved = saveSession({
@@ -266,18 +354,8 @@
       currentWordIndex,
       totalWords: words.length,
       chapters,
-      settings: {
-        wordsPerMinute,
-        fadeEnabled,
-        fadeDuration,
-        pauseOnPunctuation,
-        punctuationPauseMultiplier,
-        wordLengthWPMMultiplier,
-        pauseAfterWords,
-        pauseDuration,
-        frameWordCount,
-        showContextEnabled
-      }
+      // The browser session keeps the guest settings, not the account's
+      settings: guestSettings ?? getSettings()
     });
     if (saved) savedPosition = position;
     return saved;
@@ -288,7 +366,7 @@
     if (!session) return false;
 
     text = session.text;
-    libraryText = null;
+    leaveLibraryText();
     textSource = {};
     // Older sessions have no chapters stored: fall back to detection
     parseText(session.chapters ?? null);
@@ -297,16 +375,9 @@
     progress = (currentWordIndex / words.length) * 100;
 
     if (session.settings) {
-      wordsPerMinute = session.settings.wordsPerMinute ?? wordsPerMinute;
-      fadeEnabled = session.settings.fadeEnabled ?? fadeEnabled;
-      fadeDuration = session.settings.fadeDuration ?? fadeDuration;
-      pauseOnPunctuation = session.settings.pauseOnPunctuation ?? pauseOnPunctuation;
-      punctuationPauseMultiplier = session.settings.punctuationPauseMultiplier ?? punctuationPauseMultiplier;
-      wordLengthWPMMultiplier = session.settings.wordLengthWPMMultiplier ?? wordLengthWPMMultiplier;
-      pauseAfterWords = session.settings.pauseAfterWords ?? pauseAfterWords;
-      pauseDuration = session.settings.pauseDuration ?? pauseDuration;
-      frameWordCount = session.settings.frameWordCount ?? frameWordCount;
-      showContextEnabled = session.settings.showContextEnabled ?? showContextEnabled;
+      // Signed in, the account's settings stay; the session's apply again after signing out
+      if (guestSettings) guestSettings = { ...guestSettings, ...pickSettings(session.settings) };
+      else applySettings(session.settings);
     }
 
     isManualPause = false;
@@ -317,21 +388,33 @@
   /** @param {import('./lib/library.js').LibraryText} saved */
   function openLibraryText(saved) {
     stop();
+    // Save where the previous text was left; the server position of the new one wins
+    progressSync.flush();
     text = saved.content;
     parseText(saved.chapters);
     currentWordIndex = Math.min(saved.currentWordIndex, words.length);
     progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
     libraryText = { id: saved.id, title: saved.title };
     savedPosition = currentWordIndex;
+    progressSync.link(saved.id, currentWordIndex);
     textSource = {};
     isManualPause = false;
     showSavedSessionPrompt = false;
     showLibrary = false;
   }
 
+  // Another text is loaded: save the library text's position and unlink it
+  function leaveLibraryText() {
+    progressSync.flush();
+    progressSync.unlink();
+    libraryText = null;
+  }
+
   // Library texts belong to the account: close them when nobody is signed in anymore
+  // (nothing to save, the session is gone)
   function closeLibraryText() {
     stop();
+    progressSync.unlink();
     libraryText = null;
     text = DEFAULT_TEXT;
     parseText();
@@ -344,6 +427,7 @@
   function handleTextSaved(event) {
     libraryText = { id: event.detail.id, title: event.detail.title };
     savedPosition = event.detail.currentWordIndex;
+    progressSync.link(event.detail.id, event.detail.currentWordIndex);
     showSaveToLibrary = false;
   }
 
@@ -354,12 +438,14 @@
   function handleLibraryReset(event) {
     if (libraryText?.id !== event.detail) return;
     savedPosition = 0;
+    progressSync.link(event.detail, 0);
     stop();
   }
 
   function handleLibraryDeleted(event) {
     // The text stays in the reader, it just isn't linked to the library anymore
     if (libraryText?.id === event.detail) {
+      progressSync.unlink();
       libraryText = null;
       savedPosition = null;
     }
@@ -369,6 +455,15 @@
     clearSession();
     showSavedSessionPrompt = false;
     savedSessionInfo = null;
+  }
+
+  // Move to a word picked by the user. Jumps (search, chapter, progress bar) are saved
+  // right away, small steps with the next save.
+  function goTo(index, { save = false } = {}) {
+    currentWordIndex = Math.max(0, Math.min(words.length, index));
+    progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    progressSync.update(currentWordIndex);
+    if (save) progressSync.flush();
   }
 
   function jumpToWord(value) {
@@ -389,10 +484,7 @@
       }
     }
 
-    if (targetIndex !== undefined) {
-      currentWordIndex = targetIndex;
-      progress = (currentWordIndex / words.length) * 100;
-    }
+    if (targetIndex !== undefined) goTo(targetIndex, { save: true });
 
     showJumpTo = false;
     jumpToValue = '';
@@ -401,8 +493,7 @@
   function jumpToChapter(index) {
     const chapter = chapters[index];
     if (!chapter || words.length === 0) return;
-    currentWordIndex = Math.min(words.length, chapter.wordIndex);
-    progress = (currentWordIndex / words.length) * 100;
+    goTo(chapter.wordIndex, { save: true });
   }
 
   function searchText(query) {
@@ -410,13 +501,10 @@
   }
 
   function handleProgressClick(event) {
-    const percentage = event.detail.percentage;
-    const targetIndex = Math.floor((percentage / 100) * words.length);
-    currentWordIndex = Math.max(0, Math.min(words.length, targetIndex));
-    progress = (currentWordIndex / words.length) * 100;
+    goTo(Math.floor((event.detail.percentage / 100) * words.length), { save: true });
   }
 
-  // Leave reading mode but keep the position (Esc or the exit button)
+  // Leave reading mode but keep the position (Esc or the exit button); saved like a pause
   function exitFocusMode() {
     isPlaying = false;
     isPaused = false;
@@ -424,6 +512,7 @@
       clearTimeout(intervalId);
       intervalId = null;
     }
+    progressSync.flush();
   }
 
   function handleKeydown(e) {
@@ -473,24 +562,31 @@
         break;
       case 'ArrowLeft':
         e.preventDefault();
-        if (currentWordIndex > 1) {
-          currentWordIndex = Math.max(0, currentWordIndex - 2);
-          progress = (currentWordIndex / words.length) * 100;
-        }
+        if (currentWordIndex > 1) goTo(currentWordIndex - 2);
         break;
       case 'ArrowRight':
         e.preventDefault();
-        if (currentWordIndex < words.length) {
-          progress = ((currentWordIndex + 1) / words.length) * 100;
-          currentWordIndex++;
-        }
+        if (currentWordIndex < words.length) goTo(currentWordIndex + 1);
         break;
     }
   }
 
+  // The page may be closed after this, so a normal request could be cancelled
+  function saveBeforeLeaving() {
+    progressSync.flushWithBeacon();
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'hidden') saveBeforeLeaving();
+  }
+
+  $: progressSync.setPlaying(isPlaying);
+
   onMount(() => {
     parseText();
     window.addEventListener('keydown', handleKeydown);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', saveBeforeLeaving);
     initAuth();
 
     // Check for saved session
@@ -506,6 +602,10 @@
     if (intervalId) clearTimeout(intervalId);
     if (fadeTimeoutId) clearTimeout(fadeTimeoutId);
     window.removeEventListener('keydown', handleKeydown);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pagehide', saveBeforeLeaving);
+    progressSync.setPlaying(false);
+    settingsSync.cancel();
   });
 </script>
 
@@ -695,8 +795,7 @@
                 <button
                   class="search-result"
                   on:click={() => {
-                    currentWordIndex = result.index;
-                    progress = (currentWordIndex / words.length) * 100;
+                    goTo(result.index, { save: true });
                     showJumpTo = false;
                     jumpToValue = '';
                     searchResults = [];
@@ -849,7 +948,7 @@
         <kbd>Ctrl+S</kbd> Save
       </div>
       <div class="touch-controls mobile-only">
-        <button class="touch-btn" on:click={() => currentWordIndex = Math.max(0, currentWordIndex - 5)} title="Back 5 words">
+        <button class="touch-btn" on:click={() => goTo(currentWordIndex - 5)} title="Back 5 words">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
         </button>
         <button class="touch-btn" on:click={() => wordsPerMinute = Math.max(50, wordsPerMinute - 50)} title="Slower">
@@ -859,7 +958,7 @@
         <button class="touch-btn" on:click={() => wordsPerMinute = Math.min(1000, wordsPerMinute + 50)} title="Faster">
           <span>+WPM</span>
         </button>
-        <button class="touch-btn" on:click={() => currentWordIndex = Math.min(words.length, currentWordIndex + 5)} title="Forward 5 words">
+        <button class="touch-btn" on:click={() => goTo(currentWordIndex + 5)} title="Forward 5 words">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>
         </button>
       </div>

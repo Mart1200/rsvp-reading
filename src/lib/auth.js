@@ -105,6 +105,15 @@ export async function changePassword(currentPassword, newPassword) {
 }
 
 /**
+ * Replace the reader settings stored for the account
+ * @param {Object} settings
+ * @returns {Promise<void>}
+ */
+export async function saveSettings(settings) {
+  await api('/api/auth/settings', { method: 'PUT', body: { settings } });
+}
+
+/**
  * Permanently delete the account with all texts and progress
  * @param {string} password
  * @returns {Promise<void>}

@@ -229,12 +229,55 @@ describe('PUT /api/texts/:id/progress', () => {
   });
 });
 
+describe('POST /api/texts/:id/progress (sendBeacon)', () => {
+  // What navigator.sendBeacon sends for a string body
+  const beacon = (cookie, id, body, headers = {}) => ctx.request('POST', `/api/texts/${id}/progress`, {
+    body: JSON.stringify(body),
+    cookie,
+    headers: { 'Content-Type': 'text/plain;charset=UTF-8', ...headers }
+  });
+
+  it('accepts a text/plain JSON body', async () => {
+    const { user, cookie } = await ctx.loggedInUser();
+    const text = await createText(ctx.pool, user.id);
+
+    expect((await beacon(cookie, text.id, { currentWordIndex: 4 })).status).toBe(204);
+
+    const { body } = await ctx.request('GET', `/api/texts/${text.id}`, { cookie });
+    expect(body.text.currentWordIndex).toBe(4);
+  });
+
+  it('still checks the origin', async () => {
+    const { user, cookie } = await ctx.loggedInUser();
+    const text = await createText(ctx.pool, user.id);
+
+    const res = await beacon(cookie, text.id, { currentWordIndex: 4 }, { Origin: 'https://evil.example' });
+
+    expect(res.status).toBe(403);
+    expect(await countRows(ctx.pool, 'progress')).toBe(0);
+  });
+
+  it('rejects a body that is not JSON', async () => {
+    const { user, cookie } = await ctx.loggedInUser();
+    const text = await createText(ctx.pool, user.id);
+
+    const res = await ctx.request('POST', `/api/texts/${text.id}/progress`, {
+      body: 'currentWordIndex=4',
+      cookie,
+      headers: { 'Content-Type': 'text/plain' }
+    });
+
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('ownership and authentication', () => {
   const routes = [
     ['GET', (id) => `/api/texts/${id}`, undefined],
     ['PATCH', (id) => `/api/texts/${id}`, { title: 'hijacked' }],
     ['DELETE', (id) => `/api/texts/${id}`, {}],
-    ['PUT', (id) => `/api/texts/${id}/progress`, { currentWordIndex: 1 }]
+    ['PUT', (id) => `/api/texts/${id}/progress`, { currentWordIndex: 1 }],
+    ['POST', (id) => `/api/texts/${id}/progress`, { currentWordIndex: 1 }]
   ];
 
   it.each(routes)('%s on another user\'s text answers 404 and changes nothing', async (method, path, body) => {

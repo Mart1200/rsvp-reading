@@ -165,7 +165,7 @@ npm run preview
 When paused or not reading, the text around the current word is shown so you can see where you are (Settings → *Show context when paused or not reading*).
 - **Resume**: Continue from where you paused
 - **Stop**: Stop and go back to your last saved position (library or browser), or to the beginning if nothing is saved
-- **Restart**: Start from the beginning. If progress is saved, you are asked first; the saved position is only replaced the next time you save
+- **Restart**: Start from the beginning. If progress is saved, you are asked first; the saved position is only replaced the next time progress is saved (for library texts: as soon as you read on, see below)
 
 **Keyboard Shortcuts:**
 | Key | Action |
@@ -190,7 +190,16 @@ When signed in, two extra buttons appear in the header:
 - **Save to library** (bookmark icon): stores the loaded text with its chapters and your current position in your account. The title is suggested from the EPUB book title, the file name or the first words of pasted text, and can be edited. The button is hidden for texts that are already in the library.
 - **Library** (books icon, also in the account menu): lists your texts with words read / total (e.g. `600 / 1,200 words`), progress in percent and when you last read them. Click a title to continue reading at the saved position. Each entry can be renamed, reset to the beginning or deleted (both with confirmation).
 
-The title of an open library text is shown next to the app name. For library texts, the save button and `Ctrl+S` store the position in your account instead of the browser. Texts that are not in the library keep working exactly like before. Signing out closes an open library text.
+The title of an open library text is shown next to the app name. Texts that are not in the library keep working exactly like before. Signing out closes an open library text.
+
+**Automatic sync:** the position of a library text is saved to your account automatically, so you can continue on any device:
+- every 10 seconds while reading (only if it changed),
+- right away when you pause, leave reading mode (`Esc` / Exit), jump (search, chapter, progress bar, jump dialog) or load another text,
+- when the tab is hidden or closed.
+
+Each save becomes the position **Stop** returns to. Stop itself and a confirmed **Restart** save nothing; after a restart the old progress is replaced once you read on. The save button and `Ctrl+S` still save immediately. Failed saves are retried silently with the next one; when you open a library text, the position stored in your account wins.
+
+**Settings** (speed, fade, pauses, …) belong to your account while you are signed in and are saved a second after you change them. On first sign-in your current settings are uploaded. After signing out, the settings you had as a guest apply again; the browser session keeps the guest settings.
 
 ### Saving and Resuming Progress
 
@@ -245,6 +254,8 @@ rsvp/
 │   │   ├── api.js              # Fetch wrapper for the backend (ApiError)
 │   │   ├── auth.js             # Auth store and actions (login, register, ...)
 │   │   ├── library.js          # Library API calls, suggested titles, formatting
+│   │   ├── progress-sync.js    # Automatic position sync for library texts
+│   │   ├── settings-sync.js    # Debounced settings sync for signed-in users
 │   │   └── components/
 │   │       ├── RSVPDisplay.svelte   # Word display component
 │   │       ├── Controls.svelte      # Playback controls

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
-  auth, initAuth, login, register, logout, changePassword, deleteAccount,
+  auth, initAuth, login, register, logout, changePassword, deleteAccount, saveSettings,
   validateUsername, validatePassword, currentUser
 } from '../lib/auth.js';
 import { mockFetch, apiError } from './helpers/fetch-mock.js';
@@ -90,6 +90,14 @@ describe('actions', () => {
 
     await expect(login('alice', 'wrong')).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
     expect(get(auth).status).toBe('guest');
+  });
+
+  it('saveSettings replaces the account settings', async () => {
+    const server = mockFetch({ 'PUT /api/auth/settings': { status: 204 } });
+
+    await saveSettings({ wordsPerMinute: 450 });
+
+    expect(server.calls('PUT /api/auth/settings')[0].body).toEqual({ settings: { wordsPerMinute: 450 } });
   });
 
   it('logout returns to guest', async () => {

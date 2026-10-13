@@ -141,7 +141,7 @@ export function textRoutes({ pool }) {
     return c.body(null, 204);
   });
 
-  routes.put('/:id/progress', async (c) => {
+  async function storeProgress(c) {
     const user = requireUser(c);
     const row = await findOwnText(user.id, c.req.param('id'));
     const body = await readJsonObject(c);
@@ -158,7 +158,12 @@ export function textRoutes({ pool }) {
       [user.id, row.id, index]
     );
     return c.body(null, 204);
-  });
+  }
+
+  routes.put('/:id/progress', storeProgress);
+  // Same for navigator.sendBeacon when the page is hidden or closed: beacons can only POST,
+  // with a text/plain body (allowed for this route by the CSRF check, see BEACON_PATHS)
+  routes.post('/:id/progress', storeProgress);
 
   return routes;
 }

@@ -207,6 +207,51 @@ describe('GET /api/auth/me', () => {
   });
 });
 
+describe('PUT /api/auth/settings', () => {
+  const putSettings = (cookie, body) => ctx.request('PUT', '/api/auth/settings', { body, cookie });
+
+  it('replaces the settings returned by /me', async () => {
+    const { cookie } = await ctx.loggedInUser({ settings: { wordsPerMinute: 450, fadeEnabled: true } });
+
+    const res = await putSettings(cookie, { settings: { wordsPerMinute: 600, showContextEnabled: false } });
+
+    expect(res.status).toBe(204);
+    expect((await me(cookie)).body.user.settings).toEqual({ wordsPerMinute: 600, showContextEnabled: false });
+  });
+
+  it('only changes the own settings', async () => {
+    const alice = await ctx.loggedInUser({ settings: { wordsPerMinute: 450 } });
+    const bob = await ctx.loggedInUser();
+
+    await putSettings(bob.cookie, { settings: { wordsPerMinute: 600 } });
+
+    expect((await me(alice.cookie)).body.user.settings).toEqual({ wordsPerMinute: 450 });
+  });
+
+  it.each([
+    ['missing settings', {}],
+    ['an array', { settings: [] }],
+    ['an unknown key', { settings: { theme: 'dark' } }],
+    ['a string for a number', { settings: { wordsPerMinute: '300' } }],
+    ['a number for a boolean', { settings: { fadeEnabled: 1 } }],
+    ['a negative number', { settings: { pauseDuration: -1 } }]
+  ])('rejects %s with 400 and keeps the settings', async (_, body) => {
+    const { cookie } = await ctx.loggedInUser({ settings: { wordsPerMinute: 450 } });
+
+    const res = await putSettings(cookie, body);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION');
+    expect((await me(cookie)).body.user.settings).toEqual({ wordsPerMinute: 450 });
+  });
+
+  it('requires login', async () => {
+    const res = await putSettings(undefined, { settings: {} });
+
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('POST /api/auth/password', () => {
   const changePassword = (cookie, body) => ctx.request('POST', '/api/auth/password', { body, cookie });
 
