@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  listTexts, getText, saveText, renameText, deleteText, saveProgress,
+  listTexts, getText, saveText, renameText, deleteText, saveProgress, sendProgressBeacon,
   defaultTitle, formatRelativeTime, formatWordCount, formatWordProgress
 } from '../lib/library.js';
 import { mockFetch, apiError } from './helpers/fetch-mock.js';
@@ -62,6 +62,25 @@ describe('library API', () => {
     mockFetch({ 'GET /api/texts/t1': { status: 404, body: apiError('NOT_FOUND', 'Text not found') } });
 
     await expect(getText('t1')).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+  });
+});
+
+describe('sendProgressBeacon', () => {
+  it('queues the position as a JSON string', () => {
+    const sendBeacon = vi.fn(() => true);
+    vi.stubGlobal('navigator', { sendBeacon });
+
+    expect(sendProgressBeacon('a/b', 7)).toBe(true);
+
+    expect(sendBeacon).toHaveBeenCalledWith('/api/texts/a%2Fb/progress', '{"currentWordIndex":7}');
+  });
+
+  it('reports false when the browser refuses or has no sendBeacon', () => {
+    vi.stubGlobal('navigator', { sendBeacon: () => false });
+    expect(sendProgressBeacon('t1', 7)).toBe(false);
+
+    vi.stubGlobal('navigator', {});
+    expect(sendProgressBeacon('t1', 7)).toBe(false);
   });
 });
 

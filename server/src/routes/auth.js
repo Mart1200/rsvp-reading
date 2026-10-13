@@ -4,6 +4,7 @@ import { readJsonObject } from '../request.js';
 import { hashPassword, verifyPassword, verifyAgainstDummy } from '../auth/password.js';
 import { usernameError, passwordError, assertValid } from '../auth/validation.js';
 import { consume } from '../auth/rate-limit.js';
+import { parseSettings } from '../auth/settings.js';
 import {
   createSession, deleteSession, deleteUserSessions,
   setSessionCookie, clearSessionCookie, requireUser
@@ -151,6 +152,19 @@ export function authRoutes({ pool, cookieSecure, getIp, limiters }) {
   });
 
   routes.get('/me', (c) => c.json({ user: toUser(requireUser(c)) }));
+
+  // Replaces the stored settings (one copy per account, shared by all devices)
+  async function storeSettings(c) {
+    const user = requireUser(c);
+    const settings = parseSettings((await readJsonObject(c)).settings);
+
+    await pool.query('UPDATE users SET settings = $2 WHERE id = $1', [user.id, JSON.stringify(settings)]);
+    return c.body(null, 204);
+  }
+
+  routes.put('/settings', storeSettings);
+  // Same for navigator.sendBeacon when the page is hidden or closed (see BEACON_PATHS)
+  routes.post('/settings', storeSettings);
 
   routes.post('/password', async (c) => {
     const user = requireUser(c);

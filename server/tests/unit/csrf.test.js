@@ -53,6 +53,50 @@ describe('CSRF protection', () => {
     expect(res.body.error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
   });
 
+  describe('beacon routes', () => {
+    const progressPath = '/api/texts/00000000-0000-4000-8000-000000000000/progress';
+
+    it('lets text/plain through for POST progress (reaches the auth check)', async () => {
+      const res = await request(app, 'POST', progressPath, {
+        body: '{"currentWordIndex":1}',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+      });
+
+      expect(res.status).toBe(401);
+    });
+
+    it('lets text/plain through for POST settings (reaches the auth check)', async () => {
+      const res = await request(app, 'POST', '/api/auth/settings', {
+        body: '{"settings":{}}',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+      });
+
+      expect(res.status).toBe(401);
+    });
+
+    it('still requires the origin', async () => {
+      const res = await request(app, 'POST', progressPath, {
+        body: '{"currentWordIndex":1}',
+        headers: { 'Content-Type': 'text/plain', Origin: 'https://evil.example' }
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it.each([
+      ['PUT on the same path', 'PUT', progressPath],
+      ['POST on another path', 'POST', '/api/texts'],
+      ['PUT settings', 'PUT', '/api/auth/settings']
+    ])('rejects text/plain for %s', async (_, method, path) => {
+      const res = await request(app, method, path, {
+        body: '{}',
+        headers: { 'Content-Type': 'text/plain' }
+      });
+
+      expect(res.status).toBe(415);
+    });
+  });
+
   it.each(['PUT', 'PATCH', 'DELETE'])('also checks %s requests', async (method) => {
     const res = await request(app, method, '/api/anything', {
       body: {},

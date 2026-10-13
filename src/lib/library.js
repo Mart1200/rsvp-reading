@@ -68,6 +68,22 @@ export async function saveProgress(id, currentWordIndex) {
   await api(`/api/texts/${encodeURIComponent(id)}/progress`, { method: 'PUT', body: { currentWordIndex } });
 }
 
+/**
+ * Store the reading position while the page is being hidden or closed, when a normal
+ * request may be cancelled. The string body is sent as text/plain, which the server
+ * accepts for this route.
+ * @param {string} id
+ * @param {number} currentWordIndex
+ * @returns {boolean} Whether the browser queued the request
+ */
+export function sendProgressBeacon(id, currentWordIndex) {
+  if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return false;
+  return navigator.sendBeacon(
+    `/api/texts/${encodeURIComponent(id)}/progress`,
+    JSON.stringify({ currentWordIndex })
+  );
+}
+
 const DEFAULT_TITLE_WORDS = 6;
 
 /**

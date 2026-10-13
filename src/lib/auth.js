@@ -89,8 +89,24 @@ export async function login(username, password) {
   return user;
 }
 
+let beforeLogoutHandler = null;
+
+/**
+ * Register a callback that runs before signing out, while the session is still valid
+ * (e.g. to save unsynced changes). Its errors do not stop the logout.
+ * @param {(() => Promise<void>)|null} handler
+ */
+export function onBeforeLogout(handler) {
+  beforeLogoutHandler = handler;
+}
+
 /** @returns {Promise<void>} */
 export async function logout() {
+  try {
+    await beforeLogoutHandler?.();
+  } catch {
+    // Signing out matters more than the last unsynced change
+  }
   await api('/api/auth/logout', { method: 'POST' });
   signedOut();
 }
@@ -102,6 +118,25 @@ export async function logout() {
  */
 export async function changePassword(currentPassword, newPassword) {
   await api('/api/auth/password', { method: 'POST', body: { currentPassword, newPassword } });
+}
+
+/**
+ * Replace the reader settings stored for the account
+ * @param {Object} settings
+ * @returns {Promise<void>}
+ */
+export async function saveSettings(settings) {
+  await api('/api/auth/settings', { method: 'PUT', body: { settings } });
+}
+
+/**
+ * Store the settings while the page is being hidden or closed (see sendProgressBeacon)
+ * @param {Object} settings
+ * @returns {boolean} Whether the browser queued the request
+ */
+export function sendSettingsBeacon(settings) {
+  if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return false;
+  return navigator.sendBeacon('/api/auth/settings', JSON.stringify({ settings }));
 }
 
 /**
