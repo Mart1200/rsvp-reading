@@ -68,7 +68,7 @@
     class="control-btn stop"
     on:click={() => dispatch('stop')}
     disabled={!isPlaying && !isPaused}
-    title="Stop (Esc)"
+    title="Stop (back to your saved position)"
   >
     {#if minimal}
       <svg viewBox="0 0 24 24" fill="currentColor">

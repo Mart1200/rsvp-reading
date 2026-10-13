@@ -95,14 +95,14 @@
     </div>
 
     <div class="toggle-row">
-      <span class="toggle-label">Show context when paused</span>
+      <span class="toggle-label">Show context when paused or not reading</span>
       <button
         class="toggle"
         class:active={showContextEnabled}
         on:click={() => showContextEnabled = !showContextEnabled}
         role="switch"
         aria-checked={showContextEnabled}
-        aria-label="Toggle show context when paused"
+        aria-label="Toggle show context when paused or not reading"
       >
         <span class="toggle-thumb"></span>
       </button>

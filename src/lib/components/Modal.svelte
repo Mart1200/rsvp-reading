@@ -2,6 +2,8 @@
   import { createEventDispatcher, onMount } from 'svelte';
 
   export let title;
+  /** Wider dialog, e.g. for lists */
+  export let wide = false;
 
   const dispatch = createEventDispatcher();
   const titleId = `modal-title-${Math.random().toString(36).slice(2)}`;
@@ -22,7 +24,7 @@
 </script>
 
 <div class="modal-overlay" role="presentation" on:keydown={handleKeydown}>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} bind:this={panel}>
+  <div class="modal" class:wide role="dialog" aria-modal="true" aria-labelledby={titleId} bind:this={panel}>
     <div class="modal-header">
       <h3 id={titleId}>{title}</h3>
       <button type="button" class="close-btn" on:click={() => dispatch('close')} aria-label="Close" title="Close">
@@ -56,6 +58,10 @@
     max-width: 360px;
     max-height: 100%;
     overflow-y: auto;
+  }
+
+  .modal.wide {
+    max-width: 560px;
   }
 
   .modal-header {

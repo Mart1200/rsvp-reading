@@ -22,12 +22,17 @@
   import TextInput from './lib/components/TextInput.svelte';
   import ProgressBar from './lib/components/ProgressBar.svelte';
   import AccountMenu from './lib/components/AccountMenu.svelte';
-  import { initAuth } from './lib/auth.js';
+  import LibraryPanel from './lib/components/LibraryPanel.svelte';
+  import SaveToLibraryModal from './lib/components/SaveToLibraryModal.svelte';
+  import Modal from './lib/components/Modal.svelte';
+  import { auth, initAuth } from './lib/auth.js';
+  import { saveProgress, defaultTitle } from './lib/library.js';
   import { extractWordFrame } from './lib/rsvp-utils.js';
 
   // State
   let frameWordCount = 1;
-  let text = `Rapid serial visual presentation (RSVP) is a scientific method for studying the timing of vision. In RSVP, a sequence of stimuli is shown to an observer at one location in their visual field. This technique has been adapted for speed reading applications, where words are displayed one at a time at a fixed point, eliminating the need for eye movements and potentially increasing reading speed significantly.`;
+  const DEFAULT_TEXT = `Rapid serial visual presentation (RSVP) is a scientific method for studying the timing of vision. In RSVP, a sequence of stimuli is shown to an observer at one location in their visual field. This technique has been adapted for speed reading applications, where words are displayed one at a time at a fixed point, eliminating the need for eye movements and potentially increasing reading speed significantly.`;
+  let text = DEFAULT_TEXT;
   let words = [];
   let currentWordIndex = 0;
   let isPlaying = false;
@@ -45,6 +50,21 @@
   let searchResults = [];
   let isSearchMode = false;
   let chapters = [];
+
+  // Library: the open text when it comes from the user's library (null otherwise),
+  // and where a not-yet-saved text came from (for the suggested title)
+  /** @type {{id: string, title: string}|null} */
+  let libraryText = null;
+  /** @type {{fileName?: string, title?: string}} */
+  let textSource = {};
+  let showLibrary = false;
+  let showSaveToLibrary = false;
+
+  // Word index of the stored progress for the loaded text (library or browser session),
+  // null when nothing is saved. Stop returns here, and Restart asks before leaving it.
+  /** @type {number|null} */
+  let savedPosition = null;
+  let showRestartConfirm = false;
 
   // Settings
   let wordsPerMinute = 300;
@@ -66,8 +86,11 @@
   $: activeIndex = Math.max(0, currentWordIndex - 1);
   $: currentWord = words[activeIndex] || (words.length > 0 ? words[0] : '');
   $: wordFrame = extractWordFrame(words, activeIndex, frameWordCount);
-  $: contextBefore = isPaused ? words.slice(Math.max(0, activeIndex - 60), activeIndex) : [];
-  $: contextAfter = isPaused ? words.slice(activeIndex + 1, Math.min(words.length, activeIndex + 61)) : [];
+  // Surrounding text: shown on a manual pause and whenever not reading (after Exit/Esc,
+  // Stop, opening a text or jumping), so you can see where you are
+  $: showSurroundingText = showContextEnabled && words.length > 0 && (isManualPause || !isFocusMode);
+  $: contextBefore = showSurroundingText ? words.slice(Math.max(0, activeIndex - 60), activeIndex) : [];
+  $: contextAfter = showSurroundingText ? words.slice(activeIndex + 1, Math.min(words.length, activeIndex + 61)) : [];
   $: timeRemaining = formatTimeRemaining(words.length - currentWordIndex, wordsPerMinute);
   $: isFocusMode = isPlaying || isPaused;
   $: currentChapterIndex = findChapterIndex(chapters, currentWordIndex);
@@ -79,6 +102,8 @@
     chapters = fileChapters ?? detectChapters(text);
     currentWordIndex = 0;
     progress = 0;
+    // A new text has no saved progress until it is loaded from or saved to storage
+    savedPosition = null;
   }
 
   function getWordDelay(word) {
@@ -169,8 +194,31 @@
     start();
   }
 
+  // Stop button: end playback and go back to the saved position (start of text if none),
+  // so stopping by accident never loses progress
+  function stopToSavedPosition() {
+    stop();
+    if (savedPosition !== null) {
+      currentWordIndex = Math.min(savedPosition, words.length);
+      progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    }
+  }
+
+  // Restart button: confirm first when it would leave saved progress behind
+  function requestRestart() {
+    if (savedPosition > 0) showRestartConfirm = true;
+    else restart();
+  }
+
+  function confirmRestart() {
+    showRestartConfirm = false;
+    restart();
+  }
+
   function handleTextApply(event) {
     text = event.detail.text;
+    libraryText = null;
+    textSource = {};
     stop();
     parseText();
     showTextInput = false;
@@ -186,6 +234,8 @@
     try {
       const doc = await parseDocument(file);
       text = doc.text;
+      libraryText = null;
+      textSource = { fileName: file.name, title: doc.title };
       stop();
       parseText(doc.chapters);
       showTextInput = false;
@@ -201,7 +251,17 @@
 
   function saveCurrentSession() {
     if (words.length === 0) return false;
-    return saveSession({
+    // Library texts keep their position on the server, everything else in the browser
+    const position = currentWordIndex;
+    if (libraryText) {
+      saveProgress(libraryText.id, position)
+        .then(() => { savedPosition = position; })
+        .catch((error) => {
+          console.error('Failed to save progress:', error);
+        });
+      return true;
+    }
+    const saved = saveSession({
       text,
       currentWordIndex,
       totalWords: words.length,
@@ -219,6 +279,8 @@
         showContextEnabled
       }
     });
+    if (saved) savedPosition = position;
+    return saved;
   }
 
   function loadSavedSession() {
@@ -226,9 +288,12 @@
     if (!session) return false;
 
     text = session.text;
+    libraryText = null;
+    textSource = {};
     // Older sessions have no chapters stored: fall back to detection
     parseText(session.chapters ?? null);
     currentWordIndex = session.currentWordIndex;
+    savedPosition = session.currentWordIndex;
     progress = (currentWordIndex / words.length) * 100;
 
     if (session.settings) {
@@ -247,6 +312,57 @@
     isManualPause = false;
     showSavedSessionPrompt = false;
     return true;
+  }
+
+  /** @param {import('./lib/library.js').LibraryText} saved */
+  function openLibraryText(saved) {
+    stop();
+    text = saved.content;
+    parseText(saved.chapters);
+    currentWordIndex = Math.min(saved.currentWordIndex, words.length);
+    progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    libraryText = { id: saved.id, title: saved.title };
+    savedPosition = currentWordIndex;
+    textSource = {};
+    isManualPause = false;
+    showSavedSessionPrompt = false;
+    showLibrary = false;
+  }
+
+  // Library texts belong to the account: close them when nobody is signed in anymore
+  function closeLibraryText() {
+    stop();
+    libraryText = null;
+    text = DEFAULT_TEXT;
+    parseText();
+  }
+
+  $: if ($auth.status !== 'user' && $auth.status !== 'loading' && libraryText) {
+    closeLibraryText();
+  }
+
+  function handleTextSaved(event) {
+    libraryText = { id: event.detail.id, title: event.detail.title };
+    savedPosition = event.detail.currentWordIndex;
+    showSaveToLibrary = false;
+  }
+
+  function handleLibraryRenamed(event) {
+    if (libraryText?.id === event.detail.id) libraryText = { ...libraryText, title: event.detail.title };
+  }
+
+  function handleLibraryReset(event) {
+    if (libraryText?.id !== event.detail) return;
+    savedPosition = 0;
+    stop();
+  }
+
+  function handleLibraryDeleted(event) {
+    // The text stays in the reader, it just isn't linked to the library anymore
+    if (libraryText?.id === event.detail) {
+      libraryText = null;
+      savedPosition = null;
+    }
   }
 
   function clearSavedSession() {
@@ -300,6 +416,16 @@
     progress = (currentWordIndex / words.length) * 100;
   }
 
+  // Leave reading mode but keep the position (Esc or the exit button)
+  function exitFocusMode() {
+    isPlaying = false;
+    isPaused = false;
+    if (intervalId) {
+      clearTimeout(intervalId);
+      intervalId = null;
+    }
+  }
+
   function handleKeydown(e) {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
 
@@ -322,13 +448,7 @@
         } else if (showSavedSessionPrompt) {
           showSavedSessionPrompt = false;
         } else if (isPlaying || isPaused) {
-          // Exit focus mode but preserve position
-          isPlaying = false;
-          isPaused = false;
-          if (intervalId) {
-            clearTimeout(intervalId);
-            intervalId = null;
-          }
+          exitFocusMode();
         }
         break;
       case 'KeyG':
@@ -390,10 +510,24 @@
 </script>
 
 <main class:focus-mode={isFocusMode}>
+  {#if isFocusMode}
+    <button class="exit-focus" on:click={exitFocusMode} title="Exit reading mode (Esc)" aria-label="Exit reading mode">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+      </svg>
+      <span class="exit-label">Exit</span>
+    </button>
+  {/if}
+
   <!-- Header - hidden during focus mode -->
   {#if !isFocusMode}
     <header>
-      <h1>RSVP Reader</h1>
+      <div class="title-group">
+        <h1>RSVP Reader</h1>
+        {#if libraryText}
+          <span class="library-title" title="Open from your library">{libraryText.title}</span>
+        {/if}
+      </div>
       <div class="header-actions">
         {#if chapters.length > 1}
           <select
@@ -451,7 +585,32 @@
             <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
           </svg>
         </button>
-        <AccountMenu />
+        {#if $auth.status === 'user'}
+          {#if !libraryText && words.length > 0}
+            <button
+              class="icon-btn"
+              on:click={() => (showSaveToLibrary = true)}
+              title="Save to library"
+              aria-label="Save to library"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm-1 8h-3v3h-2v-3H8V9h3V6h2v3h3v2z"/>
+              </svg>
+            </button>
+          {/if}
+          <button
+            class="icon-btn"
+            on:click={() => (showLibrary = true)}
+            title="Library"
+            aria-label="Library"
+            class:active={showLibrary}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+            </svg>
+          </button>
+        {/if}
+        <AccountMenu on:library={() => (showLibrary = true)} />
       </div>
     </header>
   {/if}
@@ -580,6 +739,42 @@
     </div>
   {/if}
 
+  {#if showLibrary}
+    <LibraryPanel
+      currentTextId={libraryText?.id ?? null}
+      on:close={() => (showLibrary = false)}
+      on:open={(e) => openLibraryText(e.detail)}
+      on:renamed={handleLibraryRenamed}
+      on:reset={handleLibraryReset}
+      on:deleted={handleLibraryDeleted}
+    />
+  {/if}
+
+  {#if showSaveToLibrary}
+    <SaveToLibraryModal
+      title={defaultTitle({ ...textSource, text })}
+      content={text}
+      {chapters}
+      {currentWordIndex}
+      totalWords={words.length}
+      on:close={() => (showSaveToLibrary = false)}
+      on:saved={handleTextSaved}
+    />
+  {/if}
+
+  {#if showRestartConfirm}
+    <Modal title="Start from the beginning?" on:close={() => (showRestartConfirm = false)}>
+      <p class="notice">
+        Your saved position (word {savedPosition.toLocaleString('en')} of {words.length.toLocaleString('en')})
+        will be replaced the next time your progress is saved.
+      </p>
+      <div class="actions">
+        <button type="button" class="secondary" on:click={() => (showRestartConfirm = false)}>Cancel</button>
+        <button type="button" class="primary" on:click={confirmRestart}>Start over</button>
+      </div>
+    </Modal>
+  {/if}
+
   {#if showSavedSessionPrompt && savedSessionInfo}
     <div class="panel-overlay">
       <div class="saved-session-panel">
@@ -604,7 +799,7 @@
       {fadeDuration}
       {fadeEnabled}
       multiWordEnabled={frameWordCount > 1}
-      showContext={isManualPause && showContextEnabled}
+      showContext={showSurroundingText}
       {contextBefore}
       {contextAfter}
     />
@@ -639,8 +834,8 @@
         on:play={start}
         on:pause={pause}
         on:resume={resume}
-        on:stop={stop}
-        on:restart={restart}
+        on:stop={stopToSavedPosition}
+        on:restart={requestRestart}
       />
     </div>
 
@@ -701,6 +896,36 @@
     padding: 1rem;
   }
 
+  /* Way out of reading mode besides Esc; subtle so it doesn't distract while reading */
+  .exit-focus {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: transparent;
+    border: 1px solid #222;
+    border-radius: 8px;
+    color: #444;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .exit-focus:hover,
+  .exit-focus:focus-visible {
+    border-color: #555;
+    color: #fff;
+  }
+
+  .exit-focus svg {
+    width: 16px;
+    height: 16px;
+  }
+
   header {
     display: flex;
     justify-content: space-between;
@@ -714,6 +939,22 @@
     font-weight: 400;
     color: #555;
     margin: 0;
+  }
+
+  .title-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .library-title {
+    color: #888;
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 30vw;
   }
 
   .header-actions {
@@ -890,6 +1131,11 @@
 
     main.focus-mode {
       padding: 0.5rem;
+    }
+
+    .exit-focus {
+      top: 0.5rem;
+      right: 0.5rem;
     }
 
     .panel-overlay {

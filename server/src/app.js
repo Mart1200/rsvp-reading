@@ -8,6 +8,7 @@ import { getClientIp } from './request.js';
 import { createRateLimiter } from './auth/rate-limit.js';
 import { sessionMiddleware } from './auth/sessions.js';
 import { authRoutes } from './routes/auth.js';
+import { textRoutes } from './routes/texts.js';
 
 export const MAX_BODY_BYTES = 20 * 1024 * 1024;
 export const HEALTH_TIMEOUT_MS = 2000;
@@ -114,6 +115,7 @@ export function createApp({
     getIp: (c) => getClientIp(c, trustProxy),
     limiters
   }));
+  app.route('/api/texts', textRoutes({ pool }));
 
   // Registered last; skips /api/* so API routes always win
   if (staticDir) serveFrontend(app, staticDir);

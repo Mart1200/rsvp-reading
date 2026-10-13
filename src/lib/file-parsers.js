@@ -6,7 +6,8 @@ import { countWords, normalizeChapters } from './chapters.js'
 
 /**
  * @typedef {{ title: string, wordIndex: number, level: number }} Chapter
- * @typedef {{ text: string, chapters: Chapter[] }} ParsedDocument
+ * @typedef {{ text: string, chapters: Chapter[], title?: string }} ParsedDocument
+ *   title: book title from the file's metadata, when available (EPUB)
  */
 
 /**
@@ -143,9 +144,10 @@ async function extractEPUB(file) {
   }
 
   const chapters = await getEPUBChapters(book, sections)
+  const title = await getEPUBTitle(book)
 
   // Clean up the text
-  return { text: cleanText(fullText), chapters }
+  return { text: cleanText(fullText), chapters, ...(title && { title }) }
 }
 
 const BLOCK_TAGS = new Set([
@@ -294,6 +296,21 @@ export async function parseDocument(file) {
     return extractEPUB(file)
   } else {
     throw new Error(`Unsupported file type: ${fileName}`)
+  }
+}
+
+/**
+ * Book title from the EPUB metadata (dc:title)
+ * @param {Object} book - epub.js book
+ * @returns {Promise<string|null>}
+ */
+async function getEPUBTitle(book) {
+  try {
+    const metadata = await book.loaded?.metadata
+    const title = metadata?.title?.trim()
+    return title || null
+  } catch {
+    return null
   }
 }
 
