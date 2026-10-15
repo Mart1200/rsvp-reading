@@ -5,6 +5,7 @@ import {
   hasSession,
   clearSession,
   getSessionSummary,
+  markImportOffered,
   percentageToWordIndex,
   wordIndexToPercentage
 } from '../lib/progress-storage.js'
@@ -124,6 +125,40 @@ describe('progress-storage', () => {
 
     it('should return true on success', () => {
       expect(clearSession()).toBe(true)
+    })
+  })
+
+  describe('markImportOffered', () => {
+    const session = { text: 'Hello world', currentWordIndex: 1, totalWords: 2, settings: {} }
+
+    it('should return false when no session exists', () => {
+      expect(markImportOffered()).toBe(false)
+      expect(localStorageMock.setItem).not.toHaveBeenCalled()
+    })
+
+    it('should flag the stored session', () => {
+      saveSession(session)
+
+      expect(markImportOffered()).toBe(true)
+      expect(loadSession()).toMatchObject({ text: 'Hello world', currentWordIndex: 1, importOffered: true })
+    })
+
+    it('should keep the flag when the same text is saved again', () => {
+      saveSession(session)
+      markImportOffered()
+
+      saveSession({ ...session, currentWordIndex: 2 })
+
+      expect(loadSession()).toMatchObject({ currentWordIndex: 2, importOffered: true })
+    })
+
+    it('should drop the flag when another text is saved', () => {
+      saveSession(session)
+      markImportOffered()
+
+      saveSession({ ...session, text: 'Another text' })
+
+      expect(loadSession().importOffered).toBeUndefined()
     })
   })
 

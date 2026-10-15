@@ -69,6 +69,16 @@ describe('SaveToLibraryModal', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  it('takes a custom heading and cancel label', async () => {
+    mockFetch();
+    const { onClose } = renderModal({ heading: 'Save to library?', cancelLabel: 'No' });
+
+    expect(screen.getByRole('dialog', { name: 'Save to library?' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'No' }));
+
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('can be cancelled', async () => {
     mockFetch();
     const { onClose } = renderModal();

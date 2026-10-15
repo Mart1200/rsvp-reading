@@ -24,6 +24,11 @@ export function saveSession(session) {
       chapters: session.chapters || [],
       savedAt: Date.now()
     };
+    // Same text: still the same session, so the library import stays offered
+    const previous = loadSession();
+    if (previous?.importOffered && previous.text === session.text) {
+      data.importOffered = true;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     return true;
   } catch (error) {
@@ -69,6 +74,23 @@ export function clearSession() {
     return true;
   } catch (error) {
     console.error('Failed to clear session:', error);
+    return false;
+  }
+}
+
+/**
+ * Remember that saving the session to the library was offered (after signing in), so it
+ * is offered only once per session. Saving a different text starts a new session.
+ * @returns {boolean} Whether the flag was stored
+ */
+export function markImportOffered() {
+  const session = loadSession();
+  if (!session) return false;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...session, importOffered: true }));
+    return true;
+  } catch (error) {
+    console.error('Failed to update session:', error);
     return false;
   }
 }

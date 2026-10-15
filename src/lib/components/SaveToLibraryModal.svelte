@@ -9,6 +9,8 @@
   export let chapters = [];
   export let currentWordIndex = 0;
   export let totalWords = 0;
+  export let heading = 'Save to library';
+  export let cancelLabel = 'Cancel';
 
   const dispatch = createEventDispatcher();
   const errorId = `save-title-error-${Math.random().toString(36).slice(2)}`;
@@ -37,8 +39,10 @@
   }
 </script>
 
-<Modal title="Save to library" on:close>
+<Modal title={heading} on:close>
   <form on:submit|preventDefault={submit} novalidate>
+    <slot />
+
     <div class="field">
       <label>
         Title
@@ -61,7 +65,7 @@
     {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
 
     <div class="actions">
-      <button type="button" class="secondary" on:click={() => dispatch('close')}>Cancel</button>
+      <button type="button" class="secondary" on:click={() => dispatch('close')}>{cancelLabel}</button>
       <button type="submit" class="primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   </form>

@@ -14,7 +14,9 @@
     loadSession,
     clearSession,
     hasSession,
-    getSessionSummary
+    getSessionSummary,
+    markImportOffered,
+    wordIndexToPercentage
   } from './lib/progress-storage.js';
   import RSVPDisplay from './lib/components/RSVPDisplay.svelte';
   import Controls from './lib/components/Controls.svelte';
@@ -403,6 +405,52 @@
     savedPosition = event.detail.currentWordIndex;
     progressSync.link(event.detail.id, event.detail.currentWordIndex);
     showSaveToLibrary = false;
+  }
+
+  // After signing in (not on a reload while signed in), offer once to move the browser
+  // session into the library
+  /** @type {{text: string, chapters: Array, currentWordIndex: number, totalWords: number, title: string}|null} */
+  let sessionImport = null;
+  let previousAuthStatus = $auth.status;
+
+  function handleSignIn(status) {
+    const signedIn = previousAuthStatus === 'guest' && status === 'user';
+    previousAuthStatus = status;
+    if (signedIn) offerSessionImport();
+  }
+
+  $: handleSignIn($auth.status);
+
+  function offerSessionImport() {
+    const session = loadSession();
+    if (!session?.text || session.importOffered) return;
+    markImportOffered();
+    const reading = session.text === text && words.length > 0;
+    const sessionChapters = session.chapters ?? detectChapters(session.text);
+    sessionImport = {
+      text: session.text,
+      chapters: sessionChapters,
+      // The reader is further along than the last save when it shows the session's text
+      currentWordIndex: reading ? currentWordIndex : session.currentWordIndex,
+      totalWords: reading ? words.length : session.totalWords,
+      title: defaultTitle({ text: session.text })
+    };
+  }
+
+  function handleSessionImported(event) {
+    const imported = sessionImport;
+    sessionImport = null;
+    // Moved to the library: the browser copy is no longer needed
+    clearSavedSession();
+    if (text !== imported.text) {
+      stop();
+      text = imported.text;
+      textSource = {};
+      parseText(imported.chapters);
+      currentWordIndex = Math.min(imported.currentWordIndex, words.length);
+      progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    }
+    handleTextSaved(event);
   }
 
   function handleLibraryRenamed(event) {
@@ -837,6 +885,25 @@
       on:close={() => (showSaveToLibrary = false)}
       on:saved={handleTextSaved}
     />
+  {/if}
+
+  {#if sessionImport}
+    <SaveToLibraryModal
+      heading="Save to library?"
+      cancelLabel="No"
+      title={sessionImport.title}
+      content={sessionImport.text}
+      chapters={sessionImport.chapters}
+      currentWordIndex={sessionImport.currentWordIndex}
+      totalWords={sessionImport.totalWords}
+      on:close={() => (sessionImport = null)}
+      on:saved={handleSessionImported}
+    >
+      <p class="notice">
+        Save your current text ('{sessionImport.title}', {wordIndexToPercentage(sessionImport.currentWordIndex, sessionImport.totalWords)}%)
+        to your library?
+      </p>
+    </SaveToLibraryModal>
   {/if}
 
   {#if showRestartConfirm}
