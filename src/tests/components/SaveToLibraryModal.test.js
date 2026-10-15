@@ -79,6 +79,21 @@ describe('SaveToLibraryModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('cannot be closed while saving', async () => {
+    let respond;
+    mockFetch({ 'POST /api/texts': () => new Promise((resolve) => { respond = resolve; }) });
+    const { onSaved, onClose } = renderModal();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    await fireEvent.keyDown(screen.getByLabelText('Title'), { key: 'Escape' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    respond({ status: 201, body: { text: { id: 't1', title: 'Moby Dick' } } });
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
   it('can be cancelled', async () => {
     mockFetch();
     const { onClose } = renderModal();

@@ -6,6 +6,8 @@ import {
   clearSession,
   getSessionSummary,
   markImportOffered,
+  wasImportOffered,
+  textFingerprint,
   percentageToWordIndex,
   wordIndexToPercentage
 } from '../lib/progress-storage.js'
@@ -128,37 +130,53 @@ describe('progress-storage', () => {
     })
   })
 
-  describe('markImportOffered', () => {
-    const session = { text: 'Hello world', currentWordIndex: 1, totalWords: 2, settings: {} }
-
-    it('should return false when no session exists', () => {
-      expect(markImportOffered()).toBe(false)
-      expect(localStorageMock.setItem).not.toHaveBeenCalled()
+  describe('textFingerprint', () => {
+    it('should be stable for the same text', () => {
+      expect(textFingerprint('Hello world')).toBe(textFingerprint('Hello world'))
     })
 
-    it('should flag the stored session', () => {
-      saveSession(session)
-
-      expect(markImportOffered()).toBe(true)
-      expect(loadSession()).toMatchObject({ text: 'Hello world', currentWordIndex: 1, importOffered: true })
+    it('should differ for different texts of the same length', () => {
+      expect(textFingerprint('Hello world')).not.toBe(textFingerprint('Hello World'))
     })
 
-    it('should keep the flag when the same text is saved again', () => {
-      saveSession(session)
-      markImportOffered()
+    it('should include the length', () => {
+      expect(textFingerprint('abc')).toMatch(/^3:[0-9a-f]+$/)
+    })
+  })
 
-      saveSession({ ...session, currentWordIndex: 2 })
-
-      expect(loadSession()).toMatchObject({ currentWordIndex: 2, importOffered: true })
+  describe('markImportOffered / wasImportOffered', () => {
+    it('should not be offered initially', () => {
+      expect(wasImportOffered('Hello world')).toBe(false)
     })
 
-    it('should drop the flag when another text is saved', () => {
-      saveSession(session)
-      markImportOffered()
+    it('should remember the offer for the same text', () => {
+      expect(markImportOffered('Hello world')).toBe(true)
 
-      saveSession({ ...session, text: 'Another text' })
+      expect(wasImportOffered('Hello world')).toBe(true)
+    })
 
-      expect(loadSession().importOffered).toBeUndefined()
+    it('should offer again for another text', () => {
+      markImportOffered('Hello world')
+
+      expect(wasImportOffered('Another text')).toBe(false)
+    })
+
+    it('should store only a fingerprint, apart from the session', () => {
+      saveSession({ text: 'Hello world', currentWordIndex: 1, totalWords: 2, settings: {} })
+      vi.clearAllMocks()
+
+      markImportOffered('Hello world')
+
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1)
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('rsvp-reading-import-offered', textFingerprint('Hello world'))
+      expect(loadSession().text).toBe('Hello world')
+    })
+
+    it('should return false when the browser refuses to store it', () => {
+      localStorageMock.setItem.mockImplementationOnce(() => { throw new Error('QuotaExceededError') })
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      expect(markImportOffered('Hello world')).toBe(false)
     })
   })
 

@@ -19,6 +19,11 @@
   let formError = '';
   let busy = false;
 
+  // Not while saving: the result would get lost with the dialog (text saved, but not linked)
+  function close() {
+    if (!busy) dispatch('close');
+  }
+
   async function submit() {
     formError = '';
     const trimmed = title.trim();
@@ -39,7 +44,7 @@
   }
 </script>
 
-<Modal title={heading} on:close>
+<Modal title={heading} on:close={close}>
   <form on:submit|preventDefault={submit} novalidate>
     <slot />
 
@@ -65,7 +70,7 @@
     {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
 
     <div class="actions">
-      <button type="button" class="secondary" on:click={() => dispatch('close')}>{cancelLabel}</button>
+      <button type="button" class="secondary" on:click={close} disabled={busy}>{cancelLabel}</button>
       <button type="submit" class="primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   </form>

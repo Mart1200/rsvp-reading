@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import App from '../../App.svelte';
 import { auth } from '../../lib/auth.js';
-import { loadSession } from '../../lib/progress-storage.js';
+import { loadSession, wasImportOffered } from '../../lib/progress-storage.js';
 import { mockFetch, apiError } from '../helpers/fetch-mock.js';
 
 const alice = { id: 'u1', username: 'alice', settings: {} };
@@ -106,6 +106,57 @@ describe('Importing the guest session after signing in', () => {
     expect(server.calls('POST /api/texts')[0].body.currentWordIndex).toBe(5);
   });
 
+  it('keeps the saved position when the reader was reset to the start', async () => {
+    storeGuestSession();
+    const server = guestServer();
+    render(App);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    await fireEvent.keyDown(window, { code: 'KeyG' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await signIn();
+
+    const dialog = screen.getByRole('dialog', IMPORT_DIALOG);
+    expect(dialog).toHaveTextContent('50%');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await screen.findByTitle('Open from your library');
+    expect(server.calls('POST /api/texts')[0].body.currentWordIndex).toBe(3);
+    expect(document.body).toHaveTextContent(/3\s*\/\s*6/);
+  });
+
+  it('keeps another text the reader shows and only saves the session', async () => {
+    storeGuestSession();
+    const server = guestServer();
+    render(App);
+
+    await fireEvent.click(await screen.findByTitle('Load Content'));
+    await fireEvent.input(screen.getByPlaceholderText('Paste or type your text here...'), { target: { value: 'Another pasted text' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Load Text' }));
+    await signIn();
+
+    await fireEvent.click(within(screen.getByRole('dialog', IMPORT_DIALOG)).getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved "Call me Ishmael. Some years ago" to your library');
+    expect(server.calls('POST /api/texts')[0].body.content).toBe(content);
+    expect(screen.queryByTitle('Open from your library')).not.toBeInTheDocument();
+    expect(document.body).toHaveTextContent(/0\s*\/\s*3/);
+    expect(loadSession()).toBeNull();
+  });
+
+  it('closes the offer when the session ends', async () => {
+    storeGuestSession();
+    guestServer();
+    render(App);
+    await signIn();
+    expect(screen.getByRole('dialog', IMPORT_DIALOG)).toBeInTheDocument();
+
+    auth.set({ status: 'guest', user: null });
+
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', IMPORT_DIALOG)).not.toBeInTheDocument());
+    expect(loadSession()).toMatchObject({ text: content });
+  });
+
   it('keeps the browser session on "No" and does not ask again', async () => {
     storeGuestSession();
     const server = guestServer();
@@ -140,6 +191,6 @@ describe('Importing the guest session after signing in', () => {
     await screen.findByRole('button', { name: 'Library' });
 
     expect(screen.queryByRole('dialog', IMPORT_DIALOG)).not.toBeInTheDocument();
-    expect(loadSession().importOffered).toBeUndefined();
+    expect(wasImportOffered(content)).toBe(false);
   });
 });
