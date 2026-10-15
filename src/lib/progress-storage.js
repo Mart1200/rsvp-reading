@@ -73,6 +73,53 @@ export function clearSession() {
   }
 }
 
+const IMPORT_OFFERED_KEY = 'rsvp-reading-import-offered';
+
+/**
+ * Short fingerprint of a text (length + FNV-1a hash), so the session's text can be
+ * recognized without storing it twice
+ * @param {string} text
+ * @returns {string}
+ */
+export function textFingerprint(text) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${text.length}:${(hash >>> 0).toString(16)}`;
+}
+
+/**
+ * Remember that saving this session text to the library was offered (after signing in),
+ * so it is offered only once. Stored apart from the session, which can be large.
+ * @param {string} text - The session's text
+ * @returns {boolean} Whether the flag was stored
+ */
+export function markImportOffered(text) {
+  try {
+    localStorage.setItem(IMPORT_OFFERED_KEY, textFingerprint(text));
+    return true;
+  } catch (error) {
+    console.error('Failed to store import offer:', error);
+    return false;
+  }
+}
+
+/**
+ * Whether saving this session text to the library was already offered. Saving another
+ * text starts a new session, which is offered again.
+ * @param {string} text - The session's text
+ * @returns {boolean}
+ */
+export function wasImportOffered(text) {
+  try {
+    return localStorage.getItem(IMPORT_OFFERED_KEY) === textFingerprint(text);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get a summary of the saved session without loading full text
  * @returns {Object|null} Summary with wordIndex, totalWords, savedAt, or null

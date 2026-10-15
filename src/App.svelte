@@ -14,7 +14,10 @@
     loadSession,
     clearSession,
     hasSession,
-    getSessionSummary
+    getSessionSummary,
+    markImportOffered,
+    wasImportOffered,
+    wordIndexToPercentage
   } from './lib/progress-storage.js';
   import RSVPDisplay from './lib/components/RSVPDisplay.svelte';
   import Controls from './lib/components/Controls.svelte';
@@ -335,45 +338,43 @@
     return saved;
   }
 
+  // Show a stored text (browser session or library) at its position. A library text that
+  // was open saves its position first and is unlinked.
+  function loadTextAt(newText, newChapters, index) {
+    stop();
+    leaveLibraryText();
+    text = newText;
+    textSource = {};
+    parseText(newChapters);
+    currentWordIndex = Math.min(index, words.length);
+    progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    isManualPause = false;
+    showSavedSessionPrompt = false;
+  }
+
   function loadSavedSession() {
     const session = loadSession();
     if (!session) return false;
 
-    text = session.text;
-    leaveLibraryText();
-    textSource = {};
     // Older sessions have no chapters stored: fall back to detection
-    parseText(session.chapters ?? null);
-    currentWordIndex = session.currentWordIndex;
-    savedPosition = session.currentWordIndex;
-    progress = (currentWordIndex / words.length) * 100;
+    loadTextAt(session.text, session.chapters ?? null, session.currentWordIndex);
+    savedPosition = currentWordIndex;
 
     if (session.settings) {
       // Signed in, the account's settings stay; the session's apply again after signing out
       if (guestSettings) guestSettings = { ...guestSettings, ...pickSettings(session.settings) };
       else applySettings(session.settings);
     }
-
-    isManualPause = false;
-    showSavedSessionPrompt = false;
     return true;
   }
 
   /** @param {import('./lib/library.js').LibraryText} saved */
   function openLibraryText(saved) {
-    stop();
-    // Save where the previous text was left; the server position of the new one wins
-    progressSync.flush();
-    text = saved.content;
-    parseText(saved.chapters);
-    currentWordIndex = Math.min(saved.currentWordIndex, words.length);
-    progress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
+    // The server position of the new text wins
+    loadTextAt(saved.content, saved.chapters, saved.currentWordIndex);
     libraryText = { id: saved.id, title: saved.title };
     savedPosition = currentWordIndex;
     progressSync.link(saved.id, currentWordIndex);
-    textSource = {};
-    isManualPause = false;
-    showSavedSessionPrompt = false;
     showLibrary = false;
   }
 
@@ -394,8 +395,10 @@
     parseText();
   }
 
-  $: if ($auth.status !== 'user' && $auth.status !== 'loading' && libraryText) {
-    closeLibraryText();
+  $: if ($auth.status !== 'user' && $auth.status !== 'loading') {
+    if (libraryText) closeLibraryText();
+    // Saving needs the account; the session stays in the browser
+    sessionImport = null;
   }
 
   function handleTextSaved(event) {
@@ -403,6 +406,59 @@
     savedPosition = event.detail.currentWordIndex;
     progressSync.link(event.detail.id, event.detail.currentWordIndex);
     showSaveToLibrary = false;
+  }
+
+  // After signing in (not on a reload while signed in), offer once to move the browser
+  // session into the library
+  /** @type {{text: string, chapters: Array, currentWordIndex: number, totalWords: number, title: string}|null} */
+  let sessionImport = null;
+  let previousAuthStatus = $auth.status;
+
+  function handleSignIn(status) {
+    const signedIn = previousAuthStatus === 'guest' && status === 'user';
+    previousAuthStatus = status;
+    if (signedIn) offerSessionImport();
+  }
+
+  $: handleSignIn($auth.status);
+
+  // Also kept in memory, in case the browser refuses to store it
+  /** @type {string|null} */
+  let importOfferedText = null;
+
+  function offerSessionImport() {
+    const session = loadSession();
+    if (!session?.text || session.text === importOfferedText || wasImportOffered(session.text)) return;
+    importOfferedText = session.text;
+    markImportOffered(session.text);
+
+    const reading = session.text === text && words.length > 0;
+    sessionImport = {
+      text: session.text,
+      chapters: session.chapters ?? detectChapters(session.text),
+      // The reader may be further along than the last save, but not after it was reset
+      // to the start (finished, or the same text pasted again)
+      currentWordIndex: reading ? Math.max(currentWordIndex, session.currentWordIndex) : session.currentWordIndex,
+      totalWords: reading ? words.length : session.totalWords,
+      title: defaultTitle({ text: session.text })
+    };
+  }
+
+  function handleSessionImported(event) {
+    const imported = sessionImport;
+    sessionImport = null;
+    // Moved to the library: the browser copy is no longer needed (the guest settings
+    // stay in memory and come back after signing out)
+    clearSavedSession();
+
+    if (text === imported.text || text === DEFAULT_TEXT) {
+      // The reader shows this text or nothing of the user's own: continue at the saved position
+      loadTextAt(imported.text, imported.chapters, imported.currentWordIndex);
+      handleTextSaved(event);
+    } else {
+      // Keep the other (unsaved) text the reader shows; the saved one is in the library
+      showSaveNotice(`Saved "${event.detail.title}" to your library`);
+    }
   }
 
   function handleLibraryRenamed(event) {
@@ -837,6 +893,25 @@
       on:close={() => (showSaveToLibrary = false)}
       on:saved={handleTextSaved}
     />
+  {/if}
+
+  {#if sessionImport}
+    <SaveToLibraryModal
+      heading="Save to library?"
+      cancelLabel="No"
+      title={sessionImport.title}
+      content={sessionImport.text}
+      chapters={sessionImport.chapters}
+      currentWordIndex={sessionImport.currentWordIndex}
+      totalWords={sessionImport.totalWords}
+      on:close={() => (sessionImport = null)}
+      on:saved={handleSessionImported}
+    >
+      <p class="notice">
+        Save your current text ('{sessionImport.title}', {wordIndexToPercentage(sessionImport.currentWordIndex, sessionImport.totalWords)}%)
+        to your library?
+      </p>
+    </SaveToLibraryModal>
   {/if}
 
   {#if showRestartConfirm}
